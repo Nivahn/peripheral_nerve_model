@@ -1,14 +1,20 @@
+# import -----------------------
 import numpy as np
-import time
+import h5py
 from scipy.stats import gamma
 from numba import njit, prange
-import h5py
 from Simulate_lib import *
+# for optimization -------------
+import cProfile
+import pstats
+import time
 import sys
+# ------------------------------
+
 
 
 class SPM_Model:
-    def __init__(self, N=100, X=1000, dx=0.1, max_time=300, mean_ISI=15,
+    def __init__(self, N=100, X=300, dx=0.1, max_time=300, mean_ISI=15,
                  stim_pattern_type='Regular', seed=45):
         self.N = N  # Количество аксонов
         self.X = X  # Длина аксона (мм)
@@ -28,6 +34,8 @@ class SPM_Model:
         self.I = np.zeros((self.N, len(self.x)))  # Ток
         self.dt = 0.00005  # Шаг по времени (мс)
         self.t = 0  # Начальное время
+
+
 
         self.active_axons = np.arange(self.N)
         self._initialize_patterns()
@@ -108,6 +116,11 @@ class SPM_Model:
             self.tau[o, self.mask[o, :] == 1] = self.tau2[o]
             self.lamb[o, self.mask[o, :] == 1] = self.lamb2[o]
 
+        r2 = self.r ** 2  # Для использования в дальнейшем
+        sum_r2 = np.sum(r2)  # Общая сумма r^2
+        self.correction = (r2[:, np.newaxis] / sum_r2) / (
+                1 + self.sigrat * ((1 - self.rho) / (self.g_ratio ** 2 * self.rho)))  # Коррекция
+
     def _initialize_hh_model(self):
         """Инициализация параметров модели Ходжкина-Хаксли."""
         max_nodes = int(np.max(np.sum(self.mask, axis=1)) + 1)
@@ -154,7 +167,7 @@ class SPM_Model:
                 dset_middle[i] = spike_times_middle[i][~np.isnan(spike_times_middle[i])]
                 dset_end[i] = spike_times_end[i][~np.isnan(spike_times_end[i])]
 
-        print(f'✅ Данные сохранены в {filename}')
+        print(f'Данные сохранены в {filename}')
 
 
     def run_simulation(self):
@@ -193,8 +206,6 @@ class SPM_Model:
         spike_count_start = np.zeros(self.N, dtype=np.int32)
         spike_count_middle = np.zeros(self.N, dtype=np.int32)
         spike_count_end = np.zeros(self.N, dtype=np.int32)
-
-
 
         timesteps = int(self.max_time / self.dt)
 
@@ -282,13 +293,13 @@ class SPM_Model:
 
             start_time = time.time()
             # Предварительные вычисления для улучшения производительности
-            r2 = self.r ** 2  # Для использования в дальнейшем
-            sum_r2 = np.sum(r2)  # Общая сумма r^2
+            #r2 = self.r ** 2  # Для использования в дальнейшем
+            #sum_r2 = np.sum(r2)  # Общая сумма r^2
 
             #print(f"Время для r ** 2: {time.time() - start_time:.4f} сек.")
 
             start_time = time.time()
-            self.correction = (r2[:, np.newaxis] / sum_r2) / (1 + self.sigrat * ((1 - self.rho) / (self.g_ratio ** 2 * self.rho)))  # Коррекция
+            #self.correction = (r2[:, np.newaxis] / sum_r2) / (1 + self.sigrat * ((1 - self.rho) / (self.g_ratio ** 2 * self.rho)))  # Коррекция
             #print(f"Время для вычисления коррекции: {time.time() - start_time:.4f} сек.")
 
             start_time = time.time()
@@ -348,9 +359,13 @@ class SPM_Model:
             ) / tau
             '''
 
-            self.correction = np.tile(np.sum(self.correction * self.Vxx, axis=0, keepdims=True), (self.N, 1))
+            #self.correction = np.tile(np.sum(self.correction * self.Vxx, axis=0, keepdims=True), (self.N, 1))
 
-            self.dV = compute_dV(self.N, self.V, self.I, self.correction, self.lamb, self.Vxx, self.dt, self.tau)
+            sum_factor_Vxx_row = np.sum(self.correction * self.Vxx, axis=0) # Результат (X_len,)
+
+            print(sum_factor_Vxx_row)
+
+            self.dV = compute_dV(self.N, self.V, self.I, sum_factor_Vxx_row, self.lamb, self.Vxx, self.dt, self.tau)
 
             #print(f"Время для вычисления dV: {time.time() - start_time:.4f} сек.")
 
@@ -464,7 +479,12 @@ print(f'Начало расчета: {start_time}')
 start_tic = time.time()
 
 model = SPM_Model()
+profiler = cProfile.Profile()
+profiler.enable()
 model.run_simulation()
+profiler.disable()
+stats = pstats.Stats(profiler).sort_stats('cumulative')
+stats.print_stats()
 
 # Завершаем измерение времени
 elapsedTime = time.time() - start_tic  # время с начала расчета

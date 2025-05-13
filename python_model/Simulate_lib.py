@@ -78,19 +78,14 @@ def compute_summed_correction(correction, Vxx, N):
     return summed_correction
 
 @njit(parallel=True)
-def compute_dV(N, V, I, correction, lamb, Vxx, dt, tau):
-
-    #summed_correction = compute_summed_correction(correction, Vxx, N)
+def compute_dV(N, V, I, sum_terms_1D_arg, lamb, Vxx, dt, tau): # sum_terms_1D_arg - это 1D массив формы (X_len,)
     dV = np.empty_like(V)
-
-    for i in prange(V.shape[0]):
-
+    for i in prange(N): # Цикл по аксонам
         dV[i, :] = dt * (
             lamb[i, :] ** 2 * Vxx[i, :]
-            - lamb[i, :] ** 2 * correction[i]
+            - lamb[i, :] ** 2 * sum_terms_1D_arg  # <--- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: используем 1D массив целиком
             - V[i, :] + I[i, :]
         ) / tau[i, :]
-
     return dV
 
 

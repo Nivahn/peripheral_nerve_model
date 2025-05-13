@@ -31,14 +31,14 @@ else
     disp('Starting without checkpoint...');
 
     dx = 10e-2; % mm
-    %X = 300; % mm
-    X = 1000; % mm
+    X = 300; % mm
+    %X = 1000; % mm
     l = 2e-3; % node length in mm (длина узла Ранвье)
     x = dx.*[1:ceil(X/dx)];
 
-    %maxTime = 300.0; % ms
+    maxTime = 300.0; % ms
     %maxTime = 5.0;
-    maxTime = 1000.0;
+    %maxTime = 1000.0;
     N = 100; % Количество аксонов
     %active_axons = 1:10; % Список активных аксонов
     active_axons = 1:100;
