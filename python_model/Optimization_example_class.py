@@ -363,7 +363,7 @@ class SPM_Model:
 
             sum_factor_Vxx_row = np.sum(self.correction * self.Vxx, axis=0) # Результат (X_len,)
 
-            print(sum_factor_Vxx_row)
+            #print(sum_factor_Vxx_row)
 
             self.dV = compute_dV(self.N, self.V, self.I, sum_factor_Vxx_row, self.lamb, self.Vxx, self.dt, self.tau)
 
