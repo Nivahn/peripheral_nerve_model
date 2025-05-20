@@ -43,6 +43,7 @@ class SPM_Model:
         self._initialize_hh_model()
 
     def _initialize_patterns(self):
+
         """Инициализация паттернов стимуляции аксонов."""
         reg_pct, irreg_pct, semi_pct = 64, 18, 18
         num_reg = int(round(reg_pct / 100 * self.N))
@@ -61,15 +62,43 @@ class SPM_Model:
             pattern = ('Regular' if axon in self.regular_axons else
                        'Irregular' if axon in self.irregular_axons else
                        'Semiregular')
-            self.spike_patterns[axon] = pattern
 
-            k_reg = 500 if pattern in ['Regular', 'Semiregular'] else 1
-            theta_reg = self.mean_ISI / k_reg
-            num_spikes = round(self.max_time / self.mean_ISI)
-            ISI = gamma.rvs(k_reg, scale=theta_reg, size=num_spikes)
+            if pattern == "Regular":
+                k_reg = 500
+                theta_reg = self.mean_ISI / k_reg
+                num_spikes = round(self.max_time / self.mean_ISI)
+                ISI = gamma.rvs(k_reg, scale=theta_reg, size=num_spikes)
 
-            ton = np.random.uniform(0, 0, 1).ravel()  # Начальная задержка
-            self.stim_times[axon] = np.concatenate((ton, ton + np.cumsum(ISI[:-1])))
+                ton = np.random.uniform(0, 0, 1).ravel()  # Начальная задержка
+                self.stim_times[axon] = np.concatenate((ton, ton + np.cumsum(ISI[:-1])))
+
+            elif pattern == "Irregular":
+                k_reg = 1
+                theta_reg = self.mean_ISI / k_reg
+                num_spikes = round(self.max_time / self.mean_ISI)
+                ISI = gamma.rvs(k_reg, scale=theta_reg, size=num_spikes)
+
+                ton = np.random.uniform(0, 0, 1).ravel()  # Начальная задержка
+                self.stim_times[axon] = np.concatenate((ton, ton + np.cumsum(ISI[:-1])))
+
+            elif pattern == "Semiregular":
+                k_reg = 500
+                theta_reg = self.mean_ISI / k_reg
+                num_spikes = round(self.max_time / self.mean_ISI)
+                ISI_full = gamma.rvs(k_reg, scale=theta_reg, size=num_spikes)
+
+                ton = np.random.uniform(0, 0, 1).ravel()  # Начальная задержка
+                self.stim_times[axon] = np.concatenate((ton, ton + np.cumsum(ISI[:-1])))
+
+                current_spike_times = ton + np.cumsum(ISI_full)
+                num_to_remove = int(round(0.3 * len(current_spike_times)))  # [cite: 44]
+                indices_to_remove = np.random.choice(
+                    len(current_spike_times),
+                    size=num_to_remove,
+                    replace=False
+                )
+                current_spike_times = np.delete(current_spike_times, indices_to_remove)
+                self.stim_times[axon] = current_spike_times
 
     def _initialize_geometry(self):
         """Настройка геометрии аксонов."""
