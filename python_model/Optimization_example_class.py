@@ -172,7 +172,6 @@ class SPM_Model:
         """
         Сохраняет данные симуляции в HDF5-файл.
         """
-        import h5py
         vlen_float = h5py.special_dtype(vlen=np.float64)
         vlen_str = h5py.string_dtype(encoding='utf-8')
 
@@ -180,13 +179,28 @@ class SPM_Model:
         total_time = total_steps * self.dt
         t_array = np.arange(0, total_time, self.dt)
 
-        with h5py.File(filename, 'w') as f:
-            f.create_dataset('total_time', data=total_time)
-            f.create_dataset('dt', data=self.dt)
-            f.create_dataset('X', data=self.X)
-            f.create_dataset('t_array', data=t_array)
+        with h5py.File(filename, 'w') as file:
+            # --- 1. Глобальные атрибуты и параметры симуляции ---
+            file.attrs['file_creation_date'] = np.string_(time.strftime('%Y-%m-%d %H:%M:%S'))
 
-            grp = f.create_group("spikes")
+            # --- 2. Группа для основных параметров симуляции ---
+            sim_params = file.create_group("simulation_parameters")
+            sim_params.attrs['N_axons'] = self.N
+            sim_params.attrs['axon_length_X'] = self.X
+            sim_params.attrs['spatial_step_dx'] = self.dx
+            sim_params.attrs['max_simulation_time'] = self.max_time
+            sim_params.attrs['time_step_dt'] = self.dt
+            sim_params.attrs['mean_ISI_setting'] = self.mean_ISI
+            sim_params.attrs['overall_stim_pattern_type_setting'] = self.stim_pattern_type
+            sim_params.attrs['random_seed_used'] = self.seed
+            sim_params.create_dataset('t_array', data=t_array)
+
+            # --- 3. Группа для параметров геометрии и модели Ходжкина-Хаксли ---
+            model_props_grp = file.create_group("model_properties")
+            model_props_grp.attrs['g_ratio_setting'] = self.g_ratio
+
+            # --- 4. Группа для данных о спайках ---
+            grp = file.create_group("spikes")
             grp.create_dataset('patterns', data=np.array(spike_patterns, dtype=vlen_str))
 
             dset_start = grp.create_dataset('start', (len(spike_times_start),), dtype=vlen_float)
