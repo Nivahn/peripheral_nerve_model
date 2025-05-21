@@ -63,6 +63,8 @@ class SPM_Model:
                        'Irregular' if axon in self.irregular_axons else
                        'Semiregular')
 
+            self.spike_patterns[axon] = pattern
+
             if pattern == "Regular":
                 k_reg = 500
                 theta_reg = self.mean_ISI / k_reg
