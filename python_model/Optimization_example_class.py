@@ -8,6 +8,7 @@ from Simulate_lib import *
 import cProfile
 import pstats
 import time
+from tqdm import tqdm
 import sys
 # ------------------------------
 
@@ -93,7 +94,7 @@ class SPM_Model:
                 self.stim_times[axon] = np.concatenate((ton, ton + np.cumsum(ISI[:-1])))
 
                 current_spike_times = ton + np.cumsum(ISI_full)
-                num_to_remove = int(round(0.3 * len(current_spike_times)))  # [cite: 44]
+                num_to_remove = int(round(0.3 * len(current_spike_times)))
                 indices_to_remove = np.random.choice(
                     len(current_spike_times),
                     size=num_to_remove,
@@ -101,6 +102,7 @@ class SPM_Model:
                 )
                 current_spike_times = np.delete(current_spike_times, indices_to_remove)
                 self.stim_times[axon] = current_spike_times
+
 
     def _initialize_geometry(self):
         """Настройка геометрии аксонов."""
@@ -254,12 +256,14 @@ class SPM_Model:
 
         timesteps = int(self.max_time / self.dt)
 
-        #print("Работает?")
         last_print_time_model = 0.0
         real_start_time = time.time()
 
-        for t in range(timesteps):
+        #for t in range(timesteps):
 
+        for t in tqdm(range(timesteps), desc="Симуляция", unit=" шаг", total=timesteps, smoothing=0.1):
+            current_time = t * self.dt
+            '''
             current_time = t * self.dt
             sys.stdout.write(f"\rt текущее: {current_time} мс из {self.max_time} мс")
             sys.stdout.flush()
@@ -268,17 +272,11 @@ class SPM_Model:
                 real_elapsed = time.time() - real_start_time
                 print(f"Прошло {current_time:.1f} мс моделируемого времени — {real_elapsed:.1f} сек реально")
                 last_print_time_model = current_time
+            '''
 
             #print("t текущее", t * self.dt, "из", self.max_time)
-
-            # Засекаем время начала итерации по времени
-            time_step_start = time.time()
-
-            # Засекаем время начала цикла по активным аксонам
-            active_axons_start = time.time()
 
             t = t + 1
-            #print("t текущее", t * self.dt, "из", self.max_time)
 
             Istim = np.zeros(self.N)
 
@@ -295,172 +293,32 @@ class SPM_Model:
                     self.stimEndTimes[axon] = t * self.dt + 2.5  # Окончание стимула
                     self.next_stim_idx[axon] = self.next_stim_idx[axon] + 1
 
-            # Засекаем время окончания цикла по активным аксонам
-            active_axons_end = time.time()
-            #print(f"Время на цикл по активным аксонам: {active_axons_end - active_axons_start:.4f} секунд")
-
-            time_Vn_start = time.time()
             for o in range(self.N):
                 self.Vn[o, :self.nn[o] + 1] = self.V[o, self.mask[o, :] == 1]
-            time_Vn_end = time.time()
-
-            #print(f"Vn time: {time_Vn_end - time_Vn_start:.4f} секунд")
-
-            time_for_HH_stuff_start = time.time()
-            # HH stuff
 
             self.m, self.h, self.n = update_gate(self.Vn, self.dt, self.m, self.h, self.n)
 
-            time_for_HH_stuff_end = time.time()
-            #print(f"Время на HH: {time_for_HH_stuff_end - time_for_HH_stuff_start:.4f} секунд")
-            # print('m:', m, 'h:', h, 'n:', n)
 
-            time_for_some_stuff_start = time.time()
             # --------------------------------------------------------------------------------------------------------------
             # --------------------------------------------------------------------------------------------------------------
             # --------------------------------------------------------------------------------------------------------------
 
-            '''
-            Inode = compute_Inode(r, gNa, m, h, eNa, Vn, gK, n, eK, gL)
 
-            # Обновление I с использованием маски
-            I = update_I(mask, Inode, nn, I, Istim)
-
-            # Вычисление Лапласиана
-            Vxx = compute_Vxx(V, dx)
-
-            r2 = r ** 2  # Для использования в дальнейшем
-            sum_r2 = np.sum(r2)  # Общая сумма r^2
-            correction = (r2[:, np.newaxis] / sum_r2) / (1 + sigrat * ((1 - rho) / (g ** 2 * rho)))  # Коррекция
-            # Вычисление dV
-            dV = compute_dV(lamb, Vxx, correction, V, I, tau, dt)
-            '''
-
-            start_time = time.time()
-            # Предварительные вычисления для улучшения производительности
-            #r2 = self.r ** 2  # Для использования в дальнейшем
-            #sum_r2 = np.sum(r2)  # Общая сумма r^2
-
-            #print(f"Время для r ** 2: {time.time() - start_time:.4f} сек.")
-
-            start_time = time.time()
-            #self.correction = (r2[:, np.newaxis] / sum_r2) / (1 + self.sigrat * ((1 - self.rho) / (self.g_ratio ** 2 * self.rho)))  # Коррекция
-            #print(f"Время для вычисления коррекции: {time.time() - start_time:.4f} сек.")
-
-            start_time = time.time()
-
-            # Прямое вычисление Inode без использования np.tile
-            # print(f"Размер m: {m.shape}")
-            # print(f"Размер h: {h.shape}")
-            # print(f"Размер Vn: {Vn.shape}")
-            # print(f"Размер n: {n.shape}")
             self.Inode = compute_Inode(self.r, self.gNa, self.m, self.h, self.eNa, self.Vn, self.gK, self.n, self.eK, self.gL, Istim)
 
-            # Inode = r[:, np.newaxis] * (gNa * m ** 3 * h * (eNa - Vn) + gK * n ** 4 * (eK - Vn)) / gL
-            # Inode[:, 0] = Istim  # Стимул прикладывается к первому узлу Ранвье
-
-            #print(f"Время для вычисления Inode: {time.time() - start_time:.4f} сек.")
-
-            # Используем булевую маску для быстрого обновления I
-            # mask_1d = mask.astype(bool)  # Преобразуем маску в 1D булевую
-            # I[mask_1d] = Inode[:, :nn.max() + 1].flatten()  # Применяем значение для всех позиций
-            start_time = time.time()
             self.I = update_I(self.mask, self.Inode, self.nn, self.I, Istim)
-            #print(f"Время для вычисления I: {time.time() - start_time:.4f} сек.")
 
-            start_time = time.time()
-            # Векторизация для вычисления Лапласиана
-            # Ve = np.hstack([V[:, [0]], V, V[:, [-1]]])
-            # Vxx = (Ve[:, 2:] + Ve[:, :-2] - 2 * Ve[:, 1:-1]) / dx ** 2  # Лапласиан
             self.Vxx = compute_Vxx(self.V, self.dx)
-            '''
-            # Определение сетки потоков и блоков
-            threads_per_block = (16, 16)
-            blocks_per_grid = (
-                (self.V.shape[0] + threads_per_block[0] - 1) // threads_per_block[0],
-                (self.V.shape[1] + threads_per_block[1] - 1) // threads_per_block[1],
-            )
-
-            # Выделение памяти на GPU
-            V_gpu = cuda.to_device(self.V)
-            Vxx_gpu = cuda.device_array_like(self.V)  # Выходной массив на GPU
-
-            # Запуск вычислений на GPU
-            compute_Vxx_gpu[blocks_per_grid, threads_per_block](V_gpu, self.dx, Vxx_gpu)
-
-            # Копирование результата обратно в RAM
-            self.Vxx = Vxx_gpu.copy_to_host()
-            '''
-            #print(f"Время для вычисления Лапласиана Vxx: {time.time() - start_time:.4f} сек.")
-
-            start_time = time.time()
-
-            '''
-            # Векторизация для вычисления dV
-            dV = dt * (
-                    lamb ** 2 * Vxx
-                    - lamb ** 2 * np.sum(correction * Vxx, axis=0, keepdims=True)  # Суммируем коррекцию по осям
-                    - V + I
-            ) / tau
-            '''
-
-            #self.correction = np.tile(np.sum(self.correction * self.Vxx, axis=0, keepdims=True), (self.N, 1))
 
             sum_factor_Vxx_row = np.sum(self.correction * self.Vxx, axis=0) # Результат (X_len,)
 
-            #print(sum_factor_Vxx_row)
-
             self.dV = compute_dV(self.N, self.V, self.I, sum_factor_Vxx_row, self.lamb, self.Vxx, self.dt, self.tau)
 
-            #print(f"Время для вычисления dV: {time.time() - start_time:.4f} сек.")
 
-            '''
-            Inode = np.tile(r[:, np.newaxis], (1, Inode.shape[1])) * (
-                    gNa * m ** 3 * h * (eNa - Vn) + gK * n ** 4 * (eK - Vn)
-            ) / gL
-
-            Inode[:, 0] = Istim  # стимул прикладывается к первому узлу Ранвье
-
-            for o in range(N):
-                I[o, mask[o, :] == 1] = Inode[o, :nn[o] + 1]
-
-            Ve = np.hstack([V[:, [0]], V, V[:, [-1]]])
-
-            # Вторая производная (Лапласиан)
-            Vxx = (Ve[:, 2:] + Ve[:, :-2] - 2 * Ve[:, 1:-1]) / dx ** 2
-
-            # Коэффициент коррекции
-            correction = (r[:, np.newaxis] ** 2 / np.sum(r ** 2)) / (1 + sigrat * ((1 - rho) / (g ** 2 * rho)))
-
-            # Вычисление dV
-            dV = dt * (
-                    lamb ** 2 * Vxx
-                    - lamb ** 2 * np.tile(np.sum(correction * Vxx, axis=0, keepdims=True), (N, 1))
-                    - V + I
-            ) / tau
-
-            # Обновление потенциала
-            V += dV
-            time_for_some_stuff_end = time.time()
-            print(f"Время на всячину?: {time_for_some_stuff_end - time_for_some_stuff_start:.4f} секунд")
-            '''
             # --------------------------------------------------------------------------------------------------------------
             # --------------------------------------------------------------------------------------------------------------
             # --------------------------------------------------------------------------------------------------------------
             self.V += self.dV
-            time_for_some_stuff_end = time.time()
-            #print(f"Время на всячину?: {time_for_some_stuff_end - time_for_some_stuff_start:.4f} секунд")
-
-            # Засекаем время начала обработки спайков для каждого аксона
-            spike_processing_start = time.time()
-
-            """spike_times_start, spike_times_middle, spike_times_end,
-            is_spiking_start, is_spiking_middle, is_spiking_end,
-            spike_count_start, spike_count_middle, spike_count_end = spike_times_fix(self.N, self.V, self.idn, self.nn, self.Vtrack, self.dt,
-                                                                                     spike_times_start, spike_times_middle, spike_times_end,
-                                                                                     is_spiking_start, is_spiking_middle, is_spiking_end,
-                                                                                     spike_count_start, spike_count_middle, spike_count_end,
-                                                                                     t, max_spikes)"""
 
             for o in prange(self.N):
                 nodeStart = self.idn[o][1]  # Второй узел
@@ -491,14 +349,6 @@ class SPM_Model:
             for idx, axon in enumerate(self.active_axons):
                 if self.trackn[axon] >= self.nn[axon]:
                     self.spikes_reached_end[idx] = True
-
-            # Засекаем время окончания обработки спайков
-            spike_processing_end = time.time()
-            #print(f"Время на обработку спайков: {spike_processing_end - spike_processing_start:.4f} секунд")
-
-            # Засекаем время конца шага
-            time_step_end = time.time()
-            #print(f"Время на итерацию по времени (t = {t * self.dt}): {time_step_end - time_step_start:.4f} секунд")
 
         self.save_spike_data(
             filename='SpikeData_300.h5',
