@@ -55,7 +55,8 @@ class MRGaxon:
              celsius=37.0,
              dt_ms=0.05,
              v_init=-80.0,
-             h_stop = 1000.0):
+             h_stop = 1000.0,
+             gnapbar_scale=0.5):
 
         self.reset_model()
 
@@ -111,6 +112,8 @@ class MRGaxon:
 
         # Механизм узла
         self.node_mech = self._pick_node_mech()
+
+        self.gnapbar_scale = gnapbar_scale
 
         # Получение параметров MRG
         self.mrg_params = self._get_mrg_params(fiber_diameter)
@@ -200,7 +203,7 @@ class MRGaxon:
         if self.node_mech == 'newaxnode':
             s.el_newaxnode      = -90.0 if el is None else el
             s.gnabar_newaxnode  = 3.0   if gnabar  is None else gnabar
-            s.gnapbar_newaxnode = 0.005 if gnapbar is None else gnapbar
+            s.gnapbar_newaxnode = gnapbar * self.gnapbar_scale if gnapbar is None else gnapbar
         self._set_extracellular(s, Rpn0, 1e10, 0.0)
         self.regions["node"].append(s)
         return s
