@@ -22,15 +22,15 @@ extern int _method3;
 extern double hoc_Exp(double);
 #endif
  
-#define nrn_init _nrn_init__axnode
-#define _nrn_initial _nrn_initial__axnode
-#define nrn_cur _nrn_cur__axnode
-#define _nrn_current _nrn_current__axnode
-#define nrn_jacob _nrn_jacob__axnode
-#define nrn_state _nrn_state__axnode
-#define _net_receive _net_receive__axnode 
-#define evaluate_fct evaluate_fct__axnode 
-#define states states__axnode 
+#define nrn_init _nrn_init__newaxnode
+#define _nrn_initial _nrn_initial__newaxnode
+#define nrn_cur _nrn_cur__newaxnode
+#define _nrn_current _nrn_current__newaxnode
+#define nrn_jacob _nrn_jacob__newaxnode
+#define nrn_state _nrn_state__newaxnode
+#define _net_receive _net_receive__newaxnode 
+#define evaluate_fct evaluate_fct__newaxnode 
+#define states states__newaxnode 
  
 #define _threadargscomma_ _p, _ppvar, _thread, _nt,
 #define _threadargsprotocomma_ double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt,
@@ -131,6 +131,7 @@ extern "C" {
  static void _hoc_Exp(void);
  static void _hoc_evaluate_fct(void);
  static void _hoc_vtrap(void);
+ static void _hoc_vtrap0(void);
  static void _hoc_vtrap8(void);
  static void _hoc_vtrap7(void);
  static void _hoc_vtrap6(void);
@@ -164,98 +165,99 @@ extern void hoc_reg_nmodl_filename(int, const char*);
 }
  /* connect user functions to hoc names */
  static VoidFunc hoc_intfunc[] = {
- "setdata_axnode", _hoc_setdata,
- "Exp_axnode", _hoc_Exp,
- "evaluate_fct_axnode", _hoc_evaluate_fct,
- "vtrap_axnode", _hoc_vtrap,
- "vtrap8_axnode", _hoc_vtrap8,
- "vtrap7_axnode", _hoc_vtrap7,
- "vtrap6_axnode", _hoc_vtrap6,
- "vtrap2_axnode", _hoc_vtrap2,
- "vtrap1_axnode", _hoc_vtrap1,
+ "setdata_newaxnode", _hoc_setdata,
+ "Exp_newaxnode", _hoc_Exp,
+ "evaluate_fct_newaxnode", _hoc_evaluate_fct,
+ "vtrap_newaxnode", _hoc_vtrap,
+ "vtrap0_newaxnode", _hoc_vtrap0,
+ "vtrap8_newaxnode", _hoc_vtrap8,
+ "vtrap7_newaxnode", _hoc_vtrap7,
+ "vtrap6_newaxnode", _hoc_vtrap6,
+ "vtrap2_newaxnode", _hoc_vtrap2,
+ "vtrap1_newaxnode", _hoc_vtrap1,
  0, 0
 };
-#define Exp Exp_axnode
-#define vtrap vtrap_axnode
-#define vtrap8 vtrap8_axnode
-#define vtrap7 vtrap7_axnode
-#define vtrap6 vtrap6_axnode
-#define vtrap2 vtrap2_axnode
-#define vtrap1 vtrap1_axnode
+#define Exp Exp_newaxnode
+#define vtrap vtrap_newaxnode
+#define vtrap0 vtrap0_newaxnode
+#define vtrap8 vtrap8_newaxnode
+#define vtrap7 vtrap7_newaxnode
+#define vtrap6 vtrap6_newaxnode
+#define vtrap2 vtrap2_newaxnode
+#define vtrap1 vtrap1_newaxnode
  extern double Exp( _threadargsprotocomma_ double );
  extern double vtrap( _threadargsprotocomma_ double );
+ extern double vtrap0( _threadargsprotocomma_ double );
  extern double vtrap8( _threadargsprotocomma_ double );
  extern double vtrap7( _threadargsprotocomma_ double );
  extern double vtrap6( _threadargsprotocomma_ double );
  extern double vtrap2( _threadargsprotocomma_ double );
  extern double vtrap1( _threadargsprotocomma_ double );
  /* declare global and static user variables */
-#define asC asC_axnode
- double asC = -5;
-#define asB asB_axnode
- double asB = -27;
-#define asA asA_axnode
- double asA = 0.3;
-#define ahC ahC_axnode
+#define asC asC_newaxnode
+ double asC = 9.4;
+#define asB asB_newaxnode
+ double asB = 14;
+#define asA asA_newaxnode
+ double asA = 0.08;
+#define ahC ahC_newaxnode
  double ahC = 11;
-#define ahB ahB_axnode
- double ahB = 114;
-#define ahA ahA_axnode
- double ahA = 0.062;
-#define amC amC_axnode
+#define ahB ahB_newaxnode
+ double ahB = 112;
+#define ahA ahA_newaxnode
+ double ahA = 0.034;
+#define amC amC_newaxnode
  double amC = 10.3;
-#define amB amB_axnode
+#define amB amB_newaxnode
  double amB = 21.4;
-#define amA amA_axnode
- double amA = 1.86;
-#define ampC ampC_axnode
+#define amA amA_newaxnode
+ double amA = 1.85;
+#define ampC ampC_newaxnode
  double ampC = 10.2;
-#define ampB ampB_axnode
- double ampB = 27;
-#define ampA ampA_axnode
- double ampA = 0.01;
-#define bsC bsC_axnode
- double bsC = -1;
-#define bsB bsB_axnode
- double bsB = 10;
-#define bsA bsA_axnode
- double bsA = 0.03;
-#define bhC bhC_axnode
- double bhC = 13.4;
-#define bhB bhB_axnode
- double bhB = 31.8;
-#define bhA bhA_axnode
+#define ampB ampB_newaxnode
+ double ampB = 23;
+#define ampA ampA_newaxnode
+ double ampA = 0.03;
+#define bsC bsC_newaxnode
+ double bsC = 1;
+#define bsB bsB_newaxnode
+ double bsB = 56;
+#define bsA bsA_newaxnode
+ double bsA = 0.0008;
+#define bhC bhC_newaxnode
+ double bhC = 13.6;
+#define bhB bhB_newaxnode
+ double bhB = 28.8;
+#define bhA bhA_newaxnode
  double bhA = 2.3;
-#define bmC bmC_axnode
+#define bmC bmC_newaxnode
  double bmC = 9.16;
-#define bmB bmB_axnode
+#define bmB bmB_newaxnode
  double bmB = 25.7;
-#define bmA bmA_axnode
- double bmA = 0.086;
-#define bmpC bmpC_axnode
+#define bmA bmA_newaxnode
+ double bmA = 0.076;
+#define bmpC bmpC_newaxnode
  double bmpC = 10;
-#define bmpB bmpB_axnode
- double bmpB = 34;
-#define bmpA bmpA_axnode
- double bmpA = 0.00025;
-#define vtraub vtraub_axnode
- double vtraub = -80;
+#define bmpB bmpB_newaxnode
+ double bmpB = 38;
+#define bmpA bmpA_newaxnode
+ double bmpA = 0.00019;
  /* some parameters have upper and lower limits */
  static HocParmLimits _hoc_parm_limits[] = {
  0,0,0
 };
  static HocParmUnits _hoc_parm_units[] = {
- "gnapbar_axnode", "mho/cm2",
- "gnabar_axnode", "mho/cm2",
- "gkbar_axnode", "mho/cm2",
- "gl_axnode", "mho/cm2",
- "ena_axnode", "mV",
- "ek_axnode", "mV",
- "el_axnode", "mV",
- "inap_axnode", "mA/cm2",
- "ina_axnode", "mA/cm2",
- "ik_axnode", "mA/cm2",
- "il_axnode", "mA/cm2",
+ "gnapbar_newaxnode", "mho/cm2",
+ "gnabar_newaxnode", "mho/cm2",
+ "gkbar_newaxnode", "mho/cm2",
+ "gl_newaxnode", "mho/cm2",
+ "ena_newaxnode", "mV",
+ "ek_newaxnode", "mV",
+ "el_newaxnode", "mV",
+ "inap_newaxnode", "mA/cm2",
+ "ina_newaxnode", "mA/cm2",
+ "ik_newaxnode", "mA/cm2",
+ "il_newaxnode", "mA/cm2",
  0,0
 };
  static double delta_t = 1;
@@ -265,31 +267,30 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  static double s0 = 0;
  /* connect global user variables to hoc */
  static DoubScal hoc_scdoub[] = {
- "vtraub_axnode", &vtraub_axnode,
- "ampA_axnode", &ampA_axnode,
- "ampB_axnode", &ampB_axnode,
- "ampC_axnode", &ampC_axnode,
- "bmpA_axnode", &bmpA_axnode,
- "bmpB_axnode", &bmpB_axnode,
- "bmpC_axnode", &bmpC_axnode,
- "amA_axnode", &amA_axnode,
- "amB_axnode", &amB_axnode,
- "amC_axnode", &amC_axnode,
- "bmA_axnode", &bmA_axnode,
- "bmB_axnode", &bmB_axnode,
- "bmC_axnode", &bmC_axnode,
- "ahA_axnode", &ahA_axnode,
- "ahB_axnode", &ahB_axnode,
- "ahC_axnode", &ahC_axnode,
- "bhA_axnode", &bhA_axnode,
- "bhB_axnode", &bhB_axnode,
- "bhC_axnode", &bhC_axnode,
- "asA_axnode", &asA_axnode,
- "asB_axnode", &asB_axnode,
- "asC_axnode", &asC_axnode,
- "bsA_axnode", &bsA_axnode,
- "bsB_axnode", &bsB_axnode,
- "bsC_axnode", &bsC_axnode,
+ "ampA_newaxnode", &ampA_newaxnode,
+ "ampB_newaxnode", &ampB_newaxnode,
+ "ampC_newaxnode", &ampC_newaxnode,
+ "bmpA_newaxnode", &bmpA_newaxnode,
+ "bmpB_newaxnode", &bmpB_newaxnode,
+ "bmpC_newaxnode", &bmpC_newaxnode,
+ "amA_newaxnode", &amA_newaxnode,
+ "amB_newaxnode", &amB_newaxnode,
+ "amC_newaxnode", &amC_newaxnode,
+ "bmA_newaxnode", &bmA_newaxnode,
+ "bmB_newaxnode", &bmB_newaxnode,
+ "bmC_newaxnode", &bmC_newaxnode,
+ "ahA_newaxnode", &ahA_newaxnode,
+ "ahB_newaxnode", &ahB_newaxnode,
+ "ahC_newaxnode", &ahC_newaxnode,
+ "bhA_newaxnode", &bhA_newaxnode,
+ "bhB_newaxnode", &bhB_newaxnode,
+ "bhC_newaxnode", &bhC_newaxnode,
+ "asA_newaxnode", &asA_newaxnode,
+ "asB_newaxnode", &asB_newaxnode,
+ "asC_newaxnode", &asC_newaxnode,
+ "bsA_newaxnode", &bsA_newaxnode,
+ "bsB_newaxnode", &bsB_newaxnode,
+ "bsC_newaxnode", &bsC_newaxnode,
  0,0
 };
  static DoubVec hoc_vdoub[] = {
@@ -312,32 +313,32 @@ static void _ode_matsol(NrnThread*, _Memb_list*, int);
  /* connect range variables in _p that hoc is supposed to know about */
  static const char *_mechanism[] = {
  "7.7.0",
-"axnode",
- "gnapbar_axnode",
- "gnabar_axnode",
- "gkbar_axnode",
- "gl_axnode",
- "ena_axnode",
- "ek_axnode",
- "el_axnode",
+"newaxnode",
+ "gnapbar_newaxnode",
+ "gnabar_newaxnode",
+ "gkbar_newaxnode",
+ "gl_newaxnode",
+ "ena_newaxnode",
+ "ek_newaxnode",
+ "el_newaxnode",
  0,
- "inap_axnode",
- "ina_axnode",
- "ik_axnode",
- "il_axnode",
- "mp_inf_axnode",
- "m_inf_axnode",
- "h_inf_axnode",
- "s_inf_axnode",
- "tau_mp_axnode",
- "tau_m_axnode",
- "tau_h_axnode",
- "tau_s_axnode",
+ "inap_newaxnode",
+ "ina_newaxnode",
+ "ik_newaxnode",
+ "il_newaxnode",
+ "mp_inf_newaxnode",
+ "m_inf_newaxnode",
+ "h_inf_newaxnode",
+ "s_inf_newaxnode",
+ "tau_mp_newaxnode",
+ "tau_m_newaxnode",
+ "tau_h_newaxnode",
+ "tau_s_newaxnode",
  0,
- "mp_axnode",
- "m_axnode",
- "h_axnode",
- "s_axnode",
+ "mp_newaxnode",
+ "m_newaxnode",
+ "h_newaxnode",
+ "s_newaxnode",
  0,
  0};
  
@@ -389,7 +390,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
  	hoc_register_cvode(_mechtype, _ode_count, _ode_map, _ode_spec, _ode_matsol);
  	hoc_register_tolerance(_mechtype, _hoc_state_tol, &_atollist);
  	hoc_register_var(hoc_scdoub, hoc_vdoub, hoc_intfunc);
- 	ivoc_help("help ?1 axnode AXNODE.mod\n");
+ 	ivoc_help("help ?1 newaxnode AXNODE.mod\n");
  hoc_register_limits(_mechtype, _hoc_parm_limits);
  hoc_register_units(_mechtype, _hoc_parm_units);
  }
@@ -450,9 +451,8 @@ static int  evaluate_fct ( _threadargsprotocomma_ double _lv ) {
    _lb = q10_2 * bhA / ( 1.0 + Exp ( _threadargscomma_ - ( _lv + bhB ) / bhC ) ) ;
    tau_h = 1.0 / ( _la + _lb ) ;
    h_inf = _la / ( _la + _lb ) ;
-   _lv2 = _lv - vtraub ;
-   _la = q10_3 * asA / ( Exp ( _threadargscomma_ ( _lv2 + asB ) / asC ) + 1.0 ) ;
-   _lb = q10_3 * bsA / ( Exp ( _threadargscomma_ ( _lv2 + bsB ) / bsC ) + 1.0 ) ;
+   _la = q10_3 * vtrap0 ( _threadargscomma_ _lv ) ;
+   _lb = q10_3 * vtrap ( _threadargscomma_ _lv ) ;
    tau_s = 1.0 / ( _la + _lb ) ;
    s_inf = _la / ( _la + _lb ) ;
     return 0; }
@@ -468,13 +468,35 @@ static void _hoc_evaluate_fct(void) {
  hoc_retpushx(_r);
 }
  
-double vtrap ( _threadargsprotocomma_ double _lx ) {
-   double _lvtrap;
- if ( _lx < - 50.0 ) {
-     _lvtrap = 0.0 ;
+double vtrap0 ( _threadargsprotocomma_ double _lx ) {
+   double _lvtrap0;
+ if ( fabs ( ( _lx + asB ) / asC ) < 1e-6 ) {
+     _lvtrap0 = asA * asC ;
      }
    else {
-     _lvtrap = bsA / ( Exp ( _threadargscomma_ ( _lx + bsB ) / bsC ) + 1.0 ) ;
+     _lvtrap0 = ( asA * ( _lx + asB ) ) / ( 1.0 - Exp ( _threadargscomma_ - ( _lx + asB ) / asC ) ) ;
+     }
+   
+return _lvtrap0;
+ }
+ 
+static void _hoc_vtrap0(void) {
+  double _r;
+   double* _p; Datum* _ppvar; Datum* _thread; NrnThread* _nt;
+   if (_extcall_prop) {_p = _extcall_prop->param; _ppvar = _extcall_prop->dparam;}else{ _p = (double*)0; _ppvar = (Datum*)0; }
+  _thread = _extcall_thread;
+  _nt = nrn_threads;
+ _r =  vtrap0 ( _p, _ppvar, _thread, _nt, *getarg(1) );
+ hoc_retpushx(_r);
+}
+ 
+double vtrap ( _threadargsprotocomma_ double _lx ) {
+   double _lvtrap;
+ if ( fabs ( ( _lx + bsB ) / bsC ) < 1e-6 ) {
+     _lvtrap = bsA * bsC ;
+     }
+   else {
+     _lvtrap = ( bsA * ( - ( _lx + bsB ) ) ) / ( 1.0 - Exp ( _threadargscomma_ ( _lx + bsB ) / bsC ) ) ;
      }
    
 return _lvtrap;
@@ -845,7 +867,7 @@ static const char* nmodl_file_text =
   "INDEPENDENT {t FROM 0 TO 1 WITH 1 (ms)}\n"
   "\n"
   "NEURON {\n"
-  "	SUFFIX axnode\n"
+  "	SUFFIX newaxnode\n"
   "	NONSPECIFIC_CURRENT ina\n"
   "	NONSPECIFIC_CURRENT inap\n"
   "	NONSPECIFIC_CURRENT ik\n"
@@ -873,31 +895,30 @@ static const char* nmodl_file_text =
   "	celsius		(degC)\n"
   "	dt              (ms)\n"
   "	v               (mV)\n"
-  "	vtraub=-80\n"
-  "	ampA = 0.01\n"
-  "	ampB = 27\n"
+  "	ampA = 0.03\n"
+  "	ampB = 23\n"
   "	ampC = 10.2\n"
-  "	bmpA = 0.00025\n"
-  "	bmpB = 34\n"
+  "	bmpA = 0.00019\n"
+  "	bmpB = 38\n"
   "	bmpC = 10\n"
-  "	amA = 1.86\n"
+  "	amA = 1.85\n"
   "	amB = 21.4\n"
   "	amC = 10.3\n"
-  "	bmA = 0.086\n"
+  "	bmA = 0.076\n"
   "	bmB = 25.7\n"
   "	bmC = 9.16\n"
-  "	ahA = 0.062\n"
-  "	ahB = 114.0\n"
+  "	ahA = 0.034\n"
+  "	ahB = 112.0\n"
   "	ahC = 11.0\n"
   "	bhA = 2.3\n"
-  "	bhB = 31.8\n"
-  "	bhC = 13.4\n"
-  "	asA = 0.3\n"
-  "	asB = -27\n"
-  "	asC = -5\n"
-  "	bsA = 0.03\n"
-  "	bsB = 10\n"
-  "	bsC = -1\n"
+  "	bhB = 28.8\n"
+  "	bhC = 13.6\n"
+  "	asA = 0.08\n"
+  "	asB = 14\n"
+  "	asC = 9.4\n"
+  "	bsA = 0.0008\n"
+  "	bsB = 56\n"
+  "	bsC = 1\n"
   "}\n"
   "\n"
   "STATE {\n"
@@ -973,19 +994,25 @@ static const char* nmodl_file_text =
   "	tau_h = 1 / (a + b)\n"
   "	h_inf = a / (a + b)\n"
   "\n"
-  "	v2 = v - vtraub : convert to traub convention\n"
-  "\n"
-  "	a = q10_3*asA / (Exp((v2+asB)/asC) + 1) \n"
-  "	b = q10_3*bsA / (Exp((v2+bsB)/bsC) + 1)\n"
+  "	a = q10_3*vtrap0(v)\n"
+  "	b = q10_3*vtrap(v)\n"
   "	tau_s = 1 / (a + b)\n"
   "	s_inf = a / (a + b)\n"
   "}\n"
   "\n"
-  "FUNCTION vtrap(x) {\n"
-  "	if (x < -50) {\n"
-  "		vtrap = 0\n"
+  "FUNCTION vtrap0(x) {\n"
+  "	if (fabs((x+asB)/asC) < 1e-6) {\n"
+  "		vtrap0 = asA*asC\n"
   "	}else{\n"
-  "		vtrap = bsA / (Exp((x+bsB)/bsC) + 1)\n"
+  "		vtrap0 = (asA*(x+asB)) / (1 - Exp(-(x+asB)/asC))\n"
+  "	}\n"
+  "}\n"
+  "\n"
+  "FUNCTION vtrap(x) {\n"
+  "	if (fabs((x+bsB)/bsC) < 1e-6) {\n"
+  "		vtrap = bsA*bsC : Ted Carnevale minus sign bug fix\n"
+  "	}else{\n"
+  "		vtrap = (bsA*(-(x+bsB))) / (1 - Exp((x+bsB)/bsC))\n"
   "	}\n"
   "}\n"
   "\n"

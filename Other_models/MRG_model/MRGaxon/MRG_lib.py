@@ -6,6 +6,8 @@ import time
 import os
 import pandas as pd
 from scipy.signal import find_peaks
+from impulse_generator import *
+
 
 
 MRG_TABLE = {
@@ -853,3 +855,35 @@ class MRGaxon:
             self.stimulation_params['pulse_len_ms'] = pulse_len_ms
         if phase_ms is not None:
             self.stimulation_params['phase_ms'] = phase_ms
+
+    def add_ipulse1_stimulator(self, del_val, ton, toff, num, amp, position=0.5):
+        """
+        Добавляет стимулятор Ipulse1 к первому узлу аксона
+
+        Parameters:
+        del_val: задержка до первого импульса (мс)
+        ton: длительность импульса (мс)
+        toff: интервал между импульсами (мс)
+        num: количество импульсов
+        amp: амплитуда тока (нА)
+        position: позиция на секции (0-1)
+        """
+        if not self.main_axon:
+            raise ValueError("Аксон не построен. Сначала вызовите build_axon()")
+
+        self.ipulse_stimulator = Ipulse1Stimulator(self.main_axon[0], position)
+        self.ipulse_stimulator.set_parameters(del_val, ton, toff, num, amp)
+
+        # Обновляем время симуляции чтобы покрыть все импульсы
+        total_time = del_val + num * (ton + toff) + 100
+        h.tstop = total_time
+        self.h_stop = total_time
+
+        return self.ipulse_stimulator
+
+    def plot_stimulation_protocol(self):
+        """Визуализирует протокол стимуляции"""
+        if hasattr(self, 'ipulse_stimulator'):
+            return self.ipulse_stimulator.plot_waveform()
+        else:
+            print("Ipulse1 стимулятор не создан. Сначала вызовите add_ipulse1_stimulator()")

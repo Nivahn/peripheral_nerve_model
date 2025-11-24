@@ -16,7 +16,7 @@ TITLE Motor Axon Node channels
 INDEPENDENT {t FROM 0 TO 1 WITH 1 (ms)}
 
 NEURON {
-	SUFFIX axnode
+	SUFFIX newaxnode
 	NONSPECIFIC_CURRENT ina
 	NONSPECIFIC_CURRENT inap
 	NONSPECIFIC_CURRENT ik
@@ -44,31 +44,30 @@ PARAMETER {
 	celsius		(degC)
 	dt              (ms)
 	v               (mV)
-	vtraub=-80
-	ampA = 0.01
-	ampB = 27
+	ampA = 0.03
+	ampB = 23
 	ampC = 10.2
-	bmpA = 0.00025
-	bmpB = 34
+	bmpA = 0.00019
+	bmpB = 38
 	bmpC = 10
-	amA = 1.86
+	amA = 1.85
 	amB = 21.4
 	amC = 10.3
-	bmA = 0.086
+	bmA = 0.076
 	bmB = 25.7
 	bmC = 9.16
-	ahA = 0.062
-	ahB = 114.0
+	ahA = 0.034
+	ahB = 112.0
 	ahC = 11.0
 	bhA = 2.3
-	bhB = 31.8
-	bhC = 13.4
-	asA = 0.3
-	asB = -27
-	asC = -5
-	bsA = 0.03
-	bsB = 10
-	bsC = -1
+	bhB = 28.8
+	bhC = 13.6
+	asA = 0.08
+	asB = 14
+	asC = 9.4
+	bsA = 0.0008
+	bsB = 56
+	bsC = 1
 }
 
 STATE {
@@ -144,19 +143,25 @@ PROCEDURE evaluate_fct(v(mV)) { LOCAL a,b,v2
 	tau_h = 1 / (a + b)
 	h_inf = a / (a + b)
 
-	v2 = v - vtraub : convert to traub convention
-
-	a = q10_3*asA / (Exp((v2+asB)/asC) + 1) 
-	b = q10_3*bsA / (Exp((v2+bsB)/bsC) + 1)
+	a = q10_3*vtrap0(v)
+	b = q10_3*vtrap(v)
 	tau_s = 1 / (a + b)
 	s_inf = a / (a + b)
 }
 
-FUNCTION vtrap(x) {
-	if (x < -50) {
-		vtrap = 0
+FUNCTION vtrap0(x) {
+	if (fabs((x+asB)/asC) < 1e-6) {
+		vtrap0 = asA*asC
 	}else{
-		vtrap = bsA / (Exp((x+bsB)/bsC) + 1)
+		vtrap0 = (asA*(x+asB)) / (1 - Exp(-(x+asB)/asC))
+	}
+}
+
+FUNCTION vtrap(x) {
+	if (fabs((x+bsB)/bsC) < 1e-6) {
+		vtrap = bsA*bsC : Ted Carnevale minus sign bug fix
+	}else{
+		vtrap = (bsA*(-(x+bsB))) / (1 - Exp((x+bsB)/bsC))
 	}
 }
 
