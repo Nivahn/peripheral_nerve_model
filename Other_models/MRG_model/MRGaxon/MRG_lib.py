@@ -25,7 +25,9 @@ MRG_TABLE = {
 class MRGaxon:
 
     h.load_file('stdrun.hoc')
-    # ---------- ГЛОБАЛЬНЫЕ ПАРАМЕТРЫ ----------
+    # ------------------------------------------------------------------------------------
+    # ------------------------------ ГЛОБАЛЬНЫЕ ПАРАМЕТРЫ --------------------------------
+    # ------------------------------------------------------------------------------------
     celsius = 37.0
     dt_ms   = 0.05
     v_init  = -80.0
@@ -123,7 +125,9 @@ class MRGaxon:
         # Построение аксона
         self.build_axon()
 
-
+    # ------------------------------------------------------------------------------------
+    # ------------------------------ СБОРКА МОДЕЛИ ------ --------------------------------
+    # ------------------------------------------------------------------------------------
 
     def reset_model(self):
         # удалить все секции из ядра NEURON
@@ -269,8 +273,9 @@ class MRGaxon:
         self.regions["stin"].append(s)
         return s
 
-
-    # ---------- ОДИН ШАГ MRG (между узлами): MYSA→FLUT→STIN×6→FLUT→MYSA→node ----------
+    # ------------------------------------------------------------------------------------
+    # ---------- ОДИН ШАГ MRG (между узлами): MYSA→FLUT→STIN×6→FLUT→MYSA→node ------------
+    # ------------------------------------------------------------------------------------
 
     def append_one_step(self, parent_node, params):
 
@@ -415,125 +420,273 @@ class MRGaxon:
         print(f"3 ноды после точки ветвления в главном аксоне: {self.after_branch_main_id}")
         print(f"3 ноды после точки ветвления в дочерней ветке: {self.after_branch_daughter_id}")
 
+    # ------------------------------------------------------------------------------------
+    # ------------------------------ СОЗДАНИЕ СТИМУЛЯТОРА --------------------------------
+    # ------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------
+    # ---------------------- АНАЛИЗ НА ОДНОЙ ЧАСТОТЕ С ГРАФИКАМИ ------------------------
+    # ------------------------------------------------------------------------------------
 
-    def create_stimulator(self):
-        if 'stim' in locals():
-            stim = None
+    def analyze_single_frequency(self, freq, amp=1.0, stimulation_duration_ms=10000,
+                                 del_val=10, ton=0.1, plot_duration_ms=None):
+        """Анализирует проведение на одной частоте и возвращает детальные данные"""
 
+        # Расчет параметров стимуляции
+        T_ms = 1000.0 / freq
+        toff = T_ms - ton
 
-        # Параметры стимуляции
-        freq_hz = self.stimulation_params['freq_hz'] # Гц
-        amp = self.stimulation_params['amp'] # амплитуда тока (нА)
-        t_start = self.stimulation_params['t_start'] # мс
-        t_end = self.stimulation_params['t_end'] # мс
-        pulse_len_ms =  self.stimulation_params['pulse_len_ms'] # длительность импульса, мс
-        phase_ms = self.stimulation_params['phase_ms'] # сдвиг старта пачки, мс
+        # Рассчитываем количество импульсов для заданной длительности
+        num_pulses = int(stimulation_duration_ms / T_ms)
 
-        T_ms = 1000.0 / freq_hz  # период, мс
+        print(f"Анализ на частоте {freq} Гц:")
+        print(f"  Период: {T_ms:.2f} мс")
+        print(f"  Количество импульсов: {num_pulses}")
+        print(f"  Длительность стимуляции: {stimulation_duration_ms} мс")
 
-        stim = h.IClamp(self.main_axon[0](0.5))
-        # Создание временного вектора и вектора тока
-        time_vec = h.Vector()
-        current_vec = h.Vector()
+        # Создаем стимулятор
+        ipulse_stimulator = Ipulse1Stimulator(self.main_axon[0], position=0.5)
+        ipulse_stimulator.set_parameters(del_val, ton, toff, num_pulses, amp)
 
-        # Генерация формы сигнала
-        self.t_points = np.arange(0, t_end + self.dt_ms, self.dt_ms)
-        self.i_points = np.zeros(len(self.t_points))
+        # Устанавливаем общее время симуляции
+        total_time = stimulation_duration_ms + 1000  # +1000 мс для наблюдения после стимуляции
+        h.tstop = total_time
 
-        # Расчет количества импульсов
-        n_pulses = int(np.floor((t_end - (t_start + phase_ms)) / T_ms)) + 1
-
-        # Создаем последовательность импульсов
-        self.stims = []
-        for k in range(n_pulses):
-            t0 = t_start + phase_ms + k * T_ms
-            t1 = t0 + pulse_len_ms
-            if t0 > t_end:
-                break
-
-            # Для графика
-            mask = (self.t_points >= t0) & (self.t_points < t1)
-            self.i_points[mask] = amp
-
-            # Для стимуляции
-            stim = h.IClamp(self.main_axon[0](0.5))
-            stim.delay = t0
-            stim.dur = pulse_len_ms
-            stim.amp = amp
-            self.stims.append(stim)  # сохраняем ссылку
-
-        # Конвертируем numpy arrays в NEURON Vectors
-        time_vec.from_python(self.t_points)
-        current_vec.from_python(self.i_points)
-
-        # Подключаем форму тока к стимулятору
-        current_vec.play(stim._ref_amp, time_vec, 1)
-
-        plt.figure(figsize=(10, 4))
-        plt.plot(self.t_points, self.i_points)
-        plt.xlabel('t, ms')
-        plt.ylabel('I, nA')
-        plt.title('Stimulation Protocol')
-        plt.grid(True)
-        plt.show()
-
-        # Проверка что стимул создан
-        '''
-        print(f"Stimulator: {stim}")
-        print(f"Section: {self.main_axon[0]}")
-        print(f"Location: {self.main_axon[0](0.5)}")
-
-        # Проверка векторов
-        print(f"Time vector size: {time_vec.size()}")
-        print(f"Current vector size: {current_vec.size()}")
-
-        # Проверка первых нескольких значений
-        print("First 10 time points:", time_vec.to_python()[:10])
-        print("First 10 current points:", current_vec.to_python()[:10])
-        print(f"Created {len(self.stims)} stimulators")
-        '''
-
-    '''
-    def run_simulation(self, stimulation_params=None):
-        """Запускает симуляцию с заданными параметрами стимуляции."""
-        # Сбрасываем модель перед каждой симуляцией
-        self._reset_simulation_state()
-
-        self.create_stimulator()
-
-        all_sections = (self.regions["node"] + self.regions["mysa"] +
-                   self.regions["flut"] + self.regions["stin"])
-
+        # Запись потенциалов во всех узлах для детального анализа
         record_v = []
-        record_t = h.Vector().record(h._ref_t)  # один общий временной вектор
+        record_t = h.Vector().record(h._ref_t)
 
-        for sec in all_sections:
-            vec = h.Vector().record(sec(0.5)._ref_v)
+        for i, node_section in enumerate(self.main_axon):
+            vec = h.Vector().record(node_section(0.5)._ref_v)
             record_v.append(vec)
 
         h.finitialize(self.v_init)
         h.run()
 
-        # Создаем матрицу потенциалов для всех секций
+        # Преобразование данных
+        time_array = np.array(record_t)
+        voltage_matrix = np.vstack([np.array(v) for v in record_v])
+
+        results = {
+            'frequency': freq,
+            'time_array': time_array,
+            'voltage_matrix': voltage_matrix,
+            'stimulator': ipulse_stimulator,
+            'stimulation_duration_ms': stimulation_duration_ms,
+            'num_pulses': num_pulses
+        }
+
+        # Автоматическое построение графиков
+        self._plot_single_frequency_results(results, plot_duration_ms)
+
+        return results
+
+    def _plot_single_frequency_results(self, results, plot_duration_ms=None):
+        """Строит детальные графики для одной частоты стимуляции"""
+
+        time_array = results['time_array']
+        voltage_matrix = results['voltage_matrix']
+        freq = results['frequency']
+
+        # Определяем индексы ключевых узлов
+        first_node_idx = 0
+        branch_idx = self.nodes_dist
+
+        # Для дочерней ветви находим подходящий индекс
+        daughter_branch_idx = None
+        for i in range(min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon)), len(self.main_axon)):
+            if self.main_axon[i] in self.after_branch_daughter_id:
+                daughter_branch_idx = i
+                break
+
+        if daughter_branch_idx is None:
+            daughter_branch_idx = min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon) - 1)
+
+        # Ограничиваем время отображения если указано
+        if plot_duration_ms is not None:
+            time_mask = time_array <= plot_duration_ms
+            plot_time = time_array[time_mask]
+            first_node_voltage = voltage_matrix[first_node_idx][time_mask]
+            branch_voltage = voltage_matrix[branch_idx][time_mask]
+            daughter_voltage = voltage_matrix[daughter_branch_idx][time_mask]
+            time_title_suffix = f" - первые {plot_duration_ms} мс"
+        else:
+            plot_time = time_array
+            first_node_voltage = voltage_matrix[first_node_idx]
+            branch_voltage = voltage_matrix[branch_idx]
+            daughter_voltage = voltage_matrix[daughter_branch_idx]
+            time_title_suffix = ""
+
+        # Создаем фигуру с 4 подграфиками
+        fig, axes = plt.subplots(4, 1, figsize=(15, 16))
+
+        # График 1: Первый узел
+        axes[0].plot(plot_time, first_node_voltage, 'b-', alpha=0.8, linewidth=1.5)
+        axes[0].set_title(f'Потенциал в первом узле ({freq} Гц){time_title_suffix}')
+        axes[0].set_ylabel('Потенциал (мВ)')
+        axes[0].grid(True, alpha=0.3)
+
+        # График 2: Точка ветвления
+        axes[1].plot(plot_time, branch_voltage, 'orange', alpha=0.8, linewidth=1.5)
+        axes[1].set_title(f'Потенциал в точке ветвления{time_title_suffix}')
+        axes[1].set_ylabel('Потенциал (мВ)')
+        axes[1].grid(True, alpha=0.3)
+
+        # График 3: Дочерняя ветвь
+        axes[2].plot(plot_time, daughter_voltage, 'r-', alpha=0.8, linewidth=1.5)
+        axes[2].set_title(f'Потенциал в дочерней ветви{time_title_suffix}')
+        axes[2].set_ylabel('Потенциал (мВ)')
+        axes[2].grid(True, alpha=0.3)
+
+        # График 4: Стимуляция
+        stim_time = np.array(results['stimulator'].time_vec)
+        stim_current = np.array(results['stimulator'].current_vec)
+
+        if plot_duration_ms is not None:
+            stim_mask = stim_time <= plot_duration_ms
+            plot_stim_time = stim_time[stim_mask]
+            plot_stim_current = stim_current[stim_mask]
+        else:
+            plot_stim_time = stim_time
+            plot_stim_current = stim_current
+
+        axes[3].plot(plot_stim_time, plot_stim_current, 'purple', alpha=0.8, linewidth=1.5)
+        axes[3].set_title(f'Протокол стимуляции ({results["num_pulses"]} импульсов){time_title_suffix}')
+        axes[3].set_xlabel('Время (мс)')
+        axes[3].set_ylabel('Ток (нА)')
+        axes[3].grid(True, alpha=0.3)
+
+        # Общий заголовок
+        fig.suptitle(
+            f'MRG Аксон {self.fiber_diameter} мкм - Стимуляция {freq} Гц, '
+            f'{results["stimulation_duration_ms"]} мс, Амплитуда {results["stimulator"].amp} нА',
+            fontsize=14,
+            fontweight='bold',
+            y=0.95
+        )
+
+        plt.tight_layout()
+        plt.show()
+
+        return fig
+
+    def analyze_conduction_efficiency(self, voltage_matrix, time_array, threshold=-20):
+        """Анализирует эффективность проведения через ветвление"""
+
+        from scipy.signal import find_peaks
+
+        # Находим индексы ключевых узлов
+        before_branch_idx = self.nodes_dist - 2 if self.nodes_dist >= 2 else 0
+        after_main_idx = self.nodes_dist + 2
+        after_daughter_idx = None
+
+        # Находим индекс для дочерней ветви
+        for i in range(min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon)), len(self.main_axon)):
+            if self.main_axon[i] in self.after_branch_daughter_id:
+                after_daughter_idx = i
+                break
+
+        if after_daughter_idx is None:
+            after_daughter_idx = min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon) - 1)
+
+        # Проверяем границы индексов
+        before_branch_idx = max(0, min(before_branch_idx, len(self.main_axon) - 1))
+        after_main_idx = max(0, min(after_main_idx, len(self.main_axon) - 1))
+        after_daughter_idx = max(0, min(after_daughter_idx, len(self.main_axon) - 1))
+
+        # Подсчет спайков в каждой точке
+        def count_spikes(voltage_trace, threshold):
+            if len(voltage_trace) == 0:
+                return 0
+            peaks, _ = find_peaks(voltage_trace, height=threshold, distance=int(2 / self.dt_ms))
+            return len(peaks)
+
+        spikes_before = count_spikes(voltage_matrix[before_branch_idx], threshold)
+        spikes_main = count_spikes(voltage_matrix[after_main_idx], threshold)
+        spikes_daughter = count_spikes(voltage_matrix[after_daughter_idx], threshold)
+
+        # Расчет эффективности проведения
+        if spikes_before > 0:
+            main_efficiency = spikes_main / spikes_before
+            daughter_efficiency = spikes_daughter / spikes_before
+        else:
+            main_efficiency = 0
+            daughter_efficiency = 0
+
+        return {
+            'spikes_before': spikes_before,
+            'spikes_main': spikes_main,
+            'spikes_daughter': spikes_daughter,
+            'main_efficiency': main_efficiency,
+            'daughter_efficiency': daughter_efficiency,
+            'before_branch_idx': before_branch_idx,
+            'after_main_idx': after_main_idx,
+            'after_daughter_idx': after_daughter_idx
+        }
+
+    # ------------------------------------------------------------------------------------
+    # ------------------------------ ЗАПУСК СИМУЛЯЦИИ --- --------------------------------
+    # ------------------------------------------------------------------------------------
+
+    def run_simulation(self, stimulation_params=None):
+        """Запускает симуляцию с заданными параметрами стимуляции."""
+        if stimulation_params:
+            self.set_stimulation_parameters(**stimulation_params)
+
+        # Сбрасываем модель перед каждой симуляцией
+        self._reset_simulation_state()
+
+        self.create_stimulator()
+
+        # Записываем только ключевые точки для экономии памяти
+        key_segments = []  # будем хранить сегменты
+        key_names = []
+
+        # Добавляем ключевые точки записи - исправляем работу с сегментами
+        if hasattr(self, 'before_branch_id') and self.before_branch_id:
+            key_segments.extend(self.before_branch_id)
+            key_names.extend(['before_branch'] * len(self.before_branch_id))
+
+        if hasattr(self, 'after_branch_main_id') and self.after_branch_main_id:
+            key_segments.extend(self.after_branch_main_id)
+            key_names.extend(['after_branch_main'] * len(self.after_branch_main_id))
+
+        if hasattr(self, 'after_branch_daughter_id') and self.after_branch_daughter_id:
+            key_segments.extend(self.after_branch_daughter_id)
+            key_names.extend(['after_branch_daughter'] * len(self.after_branch_daughter_id))
+
+        if hasattr(self, 'branch_point_id') and self.branch_point_id:
+            key_segments.extend(self.branch_point_id)
+            key_names.extend(['branch_point'] * len(self.branch_point_id))
+
+        # Добавляем первый узел для контроля стимуляции
+        if self.main_axon:
+            key_segments.append(self.main_axon[0](0.5))  # сегмент в середине первой секции
+            key_names.append('stimulation_point')
+
+        record_v = []
+        record_t = h.Vector().record(h._ref_t)
+
+        # Создаем словарь для хранения соответствия между индексами и именами
+        self.recording_indices = {}
+        for i, (seg, name) in enumerate(zip(key_segments, key_names)):
+            # Для сегментов используем напрямую _ref_v
+            vec = h.Vector().record(seg._ref_v)
+            record_v.append(vec)
+            self.recording_indices[i] = name
+
+        h.finitialize(self.v_init)
+        h.run()
+
+        # Создаем матрицу потенциалов для ключевых секций
         self.voltage_matrix = np.vstack([np.array(v) for v in record_v])
         self.time_array = np.array(record_t)
 
         return self.time_array, self.voltage_matrix
-    '''
 
-    def _reset_simulation_state(self):
-        """Сбрасывает состояние симуляции между запусками."""
-        # Сбрасываем все записи векторов
-        for vec in h.Vector:
-            vec.resize(0)
+    # ------------------------------------------------------------------------------------
+    # ------------------------------ ГРАФИКИ И СТАТИСТИКА --------------------------------
+    # ------------------------------------------------------------------------------------
 
-        # Сбрасываем стимулятор
-        if hasattr(self, 'stimulator'):
-            self.stimulator.amp = 0
-
-        # Явно вызываем сброс NEURON
-        h.fcurrent()
-        h.finitialize(self.v_init)
 
     def _iter_sections_by_type(self):
         """Итератор по секциям с их типами."""
@@ -702,61 +855,7 @@ class MRGaxon:
             print(f"График сохранен в: {save_path}")
 
         plt.show()
-    def run_simulation(self, stimulation_params=None):
-        """Запускает симуляцию с заданными параметрами стимуляции."""
-        if stimulation_params:
-            self.set_stimulation_parameters(**stimulation_params)
 
-        # Сбрасываем модель перед каждой симуляцией
-        self._reset_simulation_state()
-
-        self.create_stimulator()
-
-        # Записываем только ключевые точки для экономии памяти
-        key_segments = []  # будем хранить сегменты
-        key_names = []
-
-        # Добавляем ключевые точки записи - исправляем работу с сегментами
-        if hasattr(self, 'before_branch_id') and self.before_branch_id:
-            key_segments.extend(self.before_branch_id)
-            key_names.extend(['before_branch'] * len(self.before_branch_id))
-
-        if hasattr(self, 'after_branch_main_id') and self.after_branch_main_id:
-            key_segments.extend(self.after_branch_main_id)
-            key_names.extend(['after_branch_main'] * len(self.after_branch_main_id))
-
-        if hasattr(self, 'after_branch_daughter_id') and self.after_branch_daughter_id:
-            key_segments.extend(self.after_branch_daughter_id)
-            key_names.extend(['after_branch_daughter'] * len(self.after_branch_daughter_id))
-
-        if hasattr(self, 'branch_point_id') and self.branch_point_id:
-            key_segments.extend(self.branch_point_id)
-            key_names.extend(['branch_point'] * len(self.branch_point_id))
-
-        # Добавляем первый узел для контроля стимуляции
-        if self.main_axon:
-            key_segments.append(self.main_axon[0](0.5))  # сегмент в середине первой секции
-            key_names.append('stimulation_point')
-
-        record_v = []
-        record_t = h.Vector().record(h._ref_t)
-
-        # Создаем словарь для хранения соответствия между индексами и именами
-        self.recording_indices = {}
-        for i, (seg, name) in enumerate(zip(key_segments, key_names)):
-            # Для сегментов используем напрямую _ref_v
-            vec = h.Vector().record(seg._ref_v)
-            record_v.append(vec)
-            self.recording_indices[i] = name
-
-        h.finitialize(self.v_init)
-        h.run()
-
-        # Создаем матрицу потенциалов для ключевых секций
-        self.voltage_matrix = np.vstack([np.array(v) for v in record_v])
-        self.time_array = np.array(record_t)
-
-        return self.time_array, self.voltage_matrix
 
     def count_spikes(self, voltage_trace, time_array=None, threshold=-20.0, min_peak_distance=2.0):
         """
@@ -837,53 +936,7 @@ class MRGaxon:
             if before_count > 0:
                 results['after_branch_daughter']['conduction_ratio'] = after_daughter_count / before_count
 
+
+
         return results
 
-    def set_stimulation_parameters(self, freq_hz=None, amp=None, t_start=None,
-                                   t_end=None, pulse_len_ms=None, phase_ms=None):
-        """Устанавливает параметры стимуляции."""
-        if freq_hz is not None:
-            self.stimulation_params['freq_hz'] = freq_hz
-        if amp is not None:
-            self.stimulation_params['amp'] = amp
-        if t_start is not None:
-            self.stimulation_params['t_start'] = t_start
-        if t_end is not None:
-            self.stimulation_params['t_end'] = t_end
-            h.tstop = t_end
-        if pulse_len_ms is not None:
-            self.stimulation_params['pulse_len_ms'] = pulse_len_ms
-        if phase_ms is not None:
-            self.stimulation_params['phase_ms'] = phase_ms
-
-    def add_ipulse1_stimulator(self, del_val, ton, toff, num, amp, position=0.5):
-        """
-        Добавляет стимулятор Ipulse1 к первому узлу аксона
-
-        Parameters:
-        del_val: задержка до первого импульса (мс)
-        ton: длительность импульса (мс)
-        toff: интервал между импульсами (мс)
-        num: количество импульсов
-        amp: амплитуда тока (нА)
-        position: позиция на секции (0-1)
-        """
-        if not self.main_axon:
-            raise ValueError("Аксон не построен. Сначала вызовите build_axon()")
-
-        self.ipulse_stimulator = Ipulse1Stimulator(self.main_axon[0], position)
-        self.ipulse_stimulator.set_parameters(del_val, ton, toff, num, amp)
-
-        # Обновляем время симуляции чтобы покрыть все импульсы
-        total_time = del_val + num * (ton + toff) + 100
-        h.tstop = total_time
-        self.h_stop = total_time
-
-        return self.ipulse_stimulator
-
-    def plot_stimulation_protocol(self):
-        """Визуализирует протокол стимуляции"""
-        if hasattr(self, 'ipulse_stimulator'):
-            return self.ipulse_stimulator.plot_waveform()
-        else:
-            print("Ipulse1 стимулятор не создан. Сначала вызовите add_ipulse1_stimulator()")
