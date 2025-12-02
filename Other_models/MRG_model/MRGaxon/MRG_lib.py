@@ -7,8 +7,7 @@ import os
 import pandas as pd
 from scipy.signal import find_peaks
 from impulse_generator import *
-
-
+import h5py
 
 MRG_TABLE = {
     5.7:  (0.605, 3.4, 1.9, 1.9, 3.4,  500, 35,  80),
@@ -103,15 +102,27 @@ class MRGaxon:
 
         # Параметры стимуляции по умолчанию
         self.stimulation_params = {
+            'mode' : 'None',
             'freq_hz': 10,
             'amp': 0.8,
             't_start': 200.0,
-            't_end': 10000.0,
-            'pulse_len_ms': 1.0,
-            'phase_ms': 0.0
-        }
-        self.h_stop = h_stop
+            't_end': 1000.0, #  "ms"
+            'phase_ms': 0.0,
+            'ton': 0.1,
+            'del_val': 10,
+            'plot_duration': 10000.0,
+            'csv_path' : "None",
+            'neuron_index': 0,
+            "index_is_one_based": False,
+            "pulse_len_ms": 1.0,
 
+        }
+
+
+
+
+
+        self.h_stop = h_stop
         h.tstop = self.h_stop
 
         # Механизм узла
@@ -423,62 +434,111 @@ class MRGaxon:
     # ------------------------------------------------------------------------------------
     # ------------------------------ СОЗДАНИЕ СТИМУЛЯТОРА --------------------------------
     # ------------------------------------------------------------------------------------
+    def set_stimulation_params(self, mode="create", **kwargs):
+        """
+        Устанавливает параметры стимуляции.
+        mode: "create" или "preload_data"
+
+        Для mode="create" ожидаются поля:
+            freq_hz, amp, t_start, t_end, del_val, ton, pulse_len_ms (опц.)
+
+        Для mode="preload_data" ожидаются поля:
+            csv_path: путь к CSV с таймпоинтами (как у тебя)
+            neuron_index: индекс колонки (0-based или 1-based — см. ниже)
+            index_is_one_based: bool, если True, neuron_index считает с 1
+            t_max: максимальное время в секундах (например, 5.0)
+            amp: амплитуда импульса (нА)
+            pulse_len_ms: длительность импульса (мс)
+        """
+        self.stimulation_params = dict(kwargs)
+        self.stimulation_params["mode"] = mode
+
+    def create_stimulator(self):
+        """
+        Создает стимулятор в зависимости от режима:
+        - "preload_data": подгрузка спайк-трейна из CSV и подача как ток в первый узел
+        - "create": классический стимулятор по частоте
+
+        Параметры берутся из self.stimulation_params (задать через set_stimulation_params).
+        """
+        mode = self.stimulation_params["mode"]
+
+        if not hasattr(self, "stimulation_params"):
+            raise ValueError("Сначала вызовите set_stimulation_params()")
+
+        if mode is None:
+            mode = self.stimulation_params.get("mode", "create")
+
+        dt = self.dt_ms
+        if mode == "preload_data":
+            params = self.stimulation_params
+
+            csv_path = params["csv_path"]
+            neuron_index = params["neuron_index"]
+            index_is_one_based = params["index_is_one_based"]
+            t_end = params["t_end"]
+            amp = params["amp"]
+            pulse_len_ms = params["pulse_len_ms"]
+
+            ipulse_stimulator = STIMULATOR(self.main_axon[0], position=0.5, mode="preload_data")
+            ipulse_stimulator.load_spike_times_from_csv(
+                csv_path=csv_path,
+                neuron_index=neuron_index,  # первый нейрон
+                index_is_one_based=index_is_one_based,
+                t_max=t_end,  # первые 5 секунд
+                amp=amp,
+                pulse_len_ms=pulse_len_ms,
+                dt=dt
+            )
+
+            self.stimulator = ipulse_stimulator
+            # tstop с запасом
+            total_time = t_end # * 1000
+            h.tstop = total_time
+            self.h_stop = total_time
+            ipulse_stimulator.plot_waveform()
+
+
+        elif mode == "create":
+            params = self.stimulation_params
+
+            freq = params["freq_hz"]
+            amp = params["amp"]
+            t_start = params.get("t_start", 0.0)
+            t_end = params["t_end"]
+            del_val = params["t_start"]
+            ton = params["ton"]
+
+            pulse_len_ms = params.get("pulse_len_ms", ton)
+            stimulation_duration_ms = t_end
+
+            # Расчет параметров стимуляции
+            T_ms = 1000.0 / freq
+            toff = T_ms - ton
+            num_pulses = int(stimulation_duration_ms / T_ms)
+            print(f"[create] Анализ на частоте {freq} Гц:")
+            print(f"  Период: {T_ms:.2f} мс")
+            print(f"  Количество импульсов: {num_pulses}")
+            print(f"  Длительность стимуляции: {stimulation_duration_ms} мс")
+
+            ipulse_stimulator = STIMULATOR(self.main_axon[0], position=0.5, mode="create")
+            ipulse_stimulator.set_parameters(t_start, ton, toff, num_pulses, amp, dt)
+
+            self.stimulator = ipulse_stimulator
+            # tstop с запасом
+            total_time = stimulation_duration_ms
+            h.tstop = total_time
+            self.h_stop = total_time
+            ipulse_stimulator.plot_waveform()
+
+        else:
+            raise ValueError(f"Неизвестный режим стимуляции: {mode}")
+
     # ------------------------------------------------------------------------------------
     # ---------------------- АНАЛИЗ НА ОДНОЙ ЧАСТОТЕ С ГРАФИКАМИ ------------------------
     # ------------------------------------------------------------------------------------
 
-    def analyze_single_frequency(self, freq, amp=1.0, stimulation_duration_ms=10000,
-                                 del_val=10, ton=0.1, plot_duration_ms=None):
-        """Анализирует проведение на одной частоте и возвращает детальные данные"""
 
-        # Расчет параметров стимуляции
-        T_ms = 1000.0 / freq
-        toff = T_ms - ton
-
-        # Рассчитываем количество импульсов для заданной длительности
-        num_pulses = int(stimulation_duration_ms / T_ms)
-
-        print(f"Анализ на частоте {freq} Гц:")
-        print(f"  Период: {T_ms:.2f} мс")
-        print(f"  Количество импульсов: {num_pulses}")
-        print(f"  Длительность стимуляции: {stimulation_duration_ms} мс")
-
-        # Создаем стимулятор
-        ipulse_stimulator = Ipulse1Stimulator(self.main_axon[0], position=0.5)
-        ipulse_stimulator.set_parameters(del_val, ton, toff, num_pulses, amp)
-
-        # Устанавливаем общее время симуляции
-        total_time = stimulation_duration_ms + 1000  # +1000 мс для наблюдения после стимуляции
-        h.tstop = total_time
-
-        # Запись потенциалов во всех узлах для детального анализа
-        record_v = []
-        record_t = h.Vector().record(h._ref_t)
-
-        for i, node_section in enumerate(self.main_axon):
-            vec = h.Vector().record(node_section(0.5)._ref_v)
-            record_v.append(vec)
-
-        h.finitialize(self.v_init)
-        h.run()
-
-        # Преобразование данных
-        time_array = np.array(record_t)
-        voltage_matrix = np.vstack([np.array(v) for v in record_v])
-
-        results = {
-            'frequency': freq,
-            'time_array': time_array,
-            'voltage_matrix': voltage_matrix,
-            'stimulator': ipulse_stimulator,
-            'stimulation_duration_ms': stimulation_duration_ms,
-            'num_pulses': num_pulses
-        }
-
-        # Автоматическое построение графиков
-        self._plot_single_frequency_results(results, plot_duration_ms)
-
-        return results
 
     def _plot_single_frequency_results(self, results, plot_duration_ms=None):
         """Строит детальные графики для одной частоты стимуляции"""
@@ -627,21 +687,28 @@ class MRGaxon:
     # ------------------------------ ЗАПУСК СИМУЛЯЦИИ --- --------------------------------
     # ------------------------------------------------------------------------------------
 
-    def run_simulation(self, stimulation_params=None):
-        """Запускает симуляцию с заданными параметрами стимуляции."""
-        if stimulation_params:
-            self.set_stimulation_parameters(**stimulation_params)
+    def run_simulation(self, h5_path=None, experiment_name=None):
+        """
+        Запускает симуляцию с заданными параметрами стимуляции.
+        mode: "preload_data" или "create" (если None — берётся из stimulation_params)
+        hdf5_path: путь к HDF5-файлу (если не None — результат сохраняется)
+        hdf5_group: имя группы внутри HDF5 (например, "neuron_1_preload")
+        """
 
-        # Сбрасываем модель перед каждой симуляцией
-        self._reset_simulation_state()
+        # Сбрасываем состояние симуляции (но не морфологию)
+        if hasattr(self, "_reset_simulation_state"):
+            self._reset_simulation_state()
+        else:
+            # мягкий reset, если нет специального метода
+            h.finitialize(self.v_init)
 
+        # Создаем стимулятор
         self.create_stimulator()
 
-        # Записываем только ключевые точки для экономии памяти
-        key_segments = []  # будем хранить сегменты
+        # Готовим список сегментов для записи
+        key_segments = []
         key_names = []
 
-        # Добавляем ключевые точки записи - исправляем работу с сегментами
         if hasattr(self, 'before_branch_id') and self.before_branch_id:
             key_segments.extend(self.before_branch_id)
             key_names.extend(['before_branch'] * len(self.before_branch_id))
@@ -658,28 +725,51 @@ class MRGaxon:
             key_segments.extend(self.branch_point_id)
             key_names.extend(['branch_point'] * len(self.branch_point_id))
 
-        # Добавляем первый узел для контроля стимуляции
+        # Добавляем точку стимуляции
         if self.main_axon:
-            key_segments.append(self.main_axon[0](0.5))  # сегмент в середине первой секции
+            key_segments.append(self.main_axon[0](0.5))
             key_names.append('stimulation_point')
 
         record_v = []
         record_t = h.Vector().record(h._ref_t)
 
-        # Создаем словарь для хранения соответствия между индексами и именами
         self.recording_indices = {}
         for i, (seg, name) in enumerate(zip(key_segments, key_names)):
-            # Для сегментов используем напрямую _ref_v
             vec = h.Vector().record(seg._ref_v)
             record_v.append(vec)
-            self.recording_indices[i] = name
 
+            node_id = f"{seg.sec.name().replace('.', '_')}_{seg.x:.2f}"
+
+            self.recording_indices[i] = {
+                "group": name,
+                "node": node_id
+            }
+
+        # Запуск
         h.finitialize(self.v_init)
         h.run()
 
-        # Создаем матрицу потенциалов для ключевых секций
+        # Сохраняем в numpy
         self.voltage_matrix = np.vstack([np.array(v) for v in record_v])
         self.time_array = np.array(record_t)
+        self.recording_labels = key_names  # по оси 0 voltage_matrix
+
+        print(f"voltage matrix: {self.voltage_matrix.shape}")
+        print(f"time array: {self.time_array.shape}")
+        print(f"recording_labels: {(self.recording_indices)}")
+
+        if h5_path is not None:
+            if experiment_name is None:
+                experiment_name = "experiment"
+
+            # если стимулятор не передали явно — попробуем взять из self
+            stimulator = self.stimulator
+
+            self.save_to_hdf5(
+                h5_path=h5_path,
+                experiment_name=experiment_name,
+                stimulator=stimulator
+            )
 
         return self.time_array, self.voltage_matrix
 
@@ -791,12 +881,13 @@ class MRGaxon:
 
         # Создаем фигуру с 5 графиками в одном столбце
         fig, axes = plt.subplots(5, 1, figsize=(12, 15))
+        '''
         title_text = (f"MRG Аксон: диаметр {self.fiber_diameter} мкм, "
                       f"Частота: {self.stimulation_params['freq_hz']} Гц, "
                       f"Сила тока: {self.stimulation_params['amp']} нА")
-
+        
         fig.suptitle(title_text, fontsize=14, fontweight='bold', y=0.98)
-
+        '''
         # График 1: До ветвления
         axes[0].plot(self.time_array, self.voltage_matrix[before_idx],
                      label=f'До ветвления (индекс {before_idx})', linewidth=2, color='blue')
@@ -939,4 +1030,111 @@ class MRGaxon:
 
 
         return results
+
+    def save_to_hdf5(self, h5_path, experiment_name="experiment", stimulator=None):
+        """
+        Сохраняет стимул и ответ модели в HDF5.
+
+        Структура:
+
+        /experiment_name/
+            Stimulator/
+                time      (N,)
+                current   (N,)
+                attrs[...]  – метаданные стимула (mode, amp, dt, ...)
+            Model/
+                time      (T,)
+                Traces/
+                    before_branch/
+                        trace0
+                        trace1
+                    branch_point/
+                        trace0
+                        trace1
+                    after_branch_main/
+                        trace0
+                        trace1
+                    after_branch_daughter/
+                        trace0
+                        trace1
+                    stimulation_point/
+                        trace0
+        """
+
+        if not hasattr(self, "time_array") or not hasattr(self, "voltage_matrix"):
+            raise RuntimeError("Нет данных симуляции: сначала вызови run_simulation().")
+
+        with h5py.File(h5_path, "a") as f:
+            if experiment_name in f:
+                grp_exp = f[experiment_name]
+            else:
+                grp_exp = f.create_group(experiment_name)
+
+            # --------- Stimulator ---------
+            if stimulator is not None:
+                grp_stim = grp_exp.require_group("Stimulator")
+
+                # удалим старые данные, если были
+                for name in ["time", "current"]:
+                    if name in grp_stim:
+                        del grp_stim[name]
+
+                if stimulator.time_vec is not None and stimulator.current_vec is not None:
+                    t_stim = np.array(stimulator.time_vec)
+                    i_stim = np.array(stimulator.current_vec)
+
+                    grp_stim.create_dataset("time", data=t_stim)
+                    grp_stim.create_dataset("current", data=i_stim)
+
+                # метаданные стимула как атрибуты
+                try:
+                    info = stimulator.get_info()
+                except Exception:
+                    info = {}
+
+                for k, v in info.items():
+                    try:
+                        grp_stim.attrs[k] = v
+                    except TypeError:
+                        grp_stim.attrs[k] = str(v)
+
+            # --------- Model: время ---------
+            grp_model = grp_exp.require_group("Model")
+
+            if "time" in grp_model:
+                del grp_model["time"]
+            grp_model.create_dataset("time", data=self.time_array)
+
+            grp_traces = grp_model.require_group("Traces")
+
+            # Упаковываем по группам имён из self.recording_indices
+            # voltage_matrix.shape = (n_traces, T)
+            for idx, meta in self.recording_indices.items():
+
+                grp_name = meta["group"]  # before_branch / branch_point / ...
+                node_name = meta["node"]  # node_36_0.50
+
+                grp_grp = grp_traces.require_group(grp_name)
+
+                dset_name = f"trace_{node_name}"
+
+                # удаляем, если уже существует
+                if dset_name in grp_grp:
+                    del grp_grp[dset_name]
+
+                dset = grp_grp.create_dataset(dset_name, data=self.voltage_matrix[idx, :])
+
+                # добавим метаданные в атрибуты
+                dset.attrs["node"] = node_name
+                dset.attrs["group"] = grp_name
+                dset.attrs["index_in_matrix"] = idx
+
+            # Немного метаданных по аксону
+            grp_model.attrs["fiber_diameter_um"] = self.fiber_diameter
+            grp_model.attrs["dt_ms"] = self.dt_ms
+            grp_model.attrs["celsius"] = self.celsius
+            grp_model.attrs["h_stop_ms"] = getattr(self, "h_stop", np.nan)
+
+            print(f"[save_to_hdf5] Сохранено в {h5_path} под группой '{experiment_name}'")
+
 
