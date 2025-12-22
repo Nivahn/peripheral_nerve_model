@@ -54,6 +54,7 @@ class MRGaxon:
              branch_nodes=21,
              branches_num=2,
              nodes_dist=10,
+             branch_every_um=None,
              diam_scale=0.6,
              celsius=37.0,
              dt_ms=0.05,
@@ -107,10 +108,9 @@ class MRGaxon:
             'amp': 0.8,
             't_start': 200.0,
             't_end': 1000.0, #  "ms"
-            'phase_ms': 0.0,
-            'ton': 0.1,
-            'del_val': 10,
-            'plot_duration': 10000.0,
+            'phase_us': 0.0,
+            'gap_us': 0.0,
+            'plot_duration': 100.0,
             'csv_path' : "None",
             'neuron_index': 0,
             "index_is_one_based": False,
@@ -131,8 +131,17 @@ class MRGaxon:
         self.gnapbar_scale = gnapbar_scale
 
         # Получение параметров MRG
-        self.mrg_params = self._get_mrg_params(fiber_diameter)
+        self.mrg_params = self._get_mrg_params(fiber_diameter)\
 
+        self.branch_every_um = branch_every_um
+        if self.branch_every_um is not None:
+            # Lstep — длина одного "шага" node->node в MRG (в мкм)
+            self.nodes_dist = max(1, int(round(self.branch_every_um / self.mrg_params['Lstep'])))
+
+        # (опционально) полезно знать фактический шаг ветвления в мкм после округления
+        self.branch_every_um_effective = self.nodes_dist * self.mrg_params['Lstep']
+
+        self.print_all_parameters()
         # Построение аксона
         self.build_axon()
 
@@ -299,7 +308,7 @@ class MRGaxon:
 
         # топология
         mysa0.connect(parent_node, 1.0, 0.0)
-        flut0.connect(mysa0,       1.0, 0.0)
+        flut0.connect(mysa0, 1.0, 0.0)
         stin_sections[0].connect(flut0,       1.0, 0.0)
         for k in range(1,6):
             stin_sections[k].connect(stin_sections[k-1], 1.0, 0.0)
@@ -310,6 +319,7 @@ class MRGaxon:
         return next_node
 
     def build_chain(self, n_nodes, params, node_mech=None):
+
         nodes = [self.make_node(params['nodeD'], self.nodelength, params['Rpn0'])]
         for _ in range(n_nodes-1):
             next_node = self.append_one_step(nodes[-1], params)
@@ -339,13 +349,15 @@ class MRGaxon:
 
         terminals = []
         params = self.mrg_params
-        #P0 = mrg_params(fiberD=10)
-        #P_curr = dict(P0)
-        #print("P0", P0, "P_curr", P_curr)
-
-        #main_axon = [make_node(params['nodeD'], nodelength, rhoa, params['Rpn0'], NODE_MECH)]
 
         self.main_axon = [self.make_node(self.mrg_params['nodeD'], self.nodelength, self.mrg_params['rpn0'])]
+
+        self.node_distance_um = {}
+        total_length_um = 0.0
+        self.node_distance_um[self.main_axon[0].name()] = total_length_um
+
+        # >>> INSERT: список расстояний в точках ветвления (мкм)
+        self.branch_point_distance_um = []
 
         node_D_after_branching = False
         count_nodes_after_branching = 0
@@ -356,80 +368,119 @@ class MRGaxon:
         self.after_branch_main_id = []
         self.after_branch_daughter_id = []
 
-        for _ in range(self.parent_axon_nodes-1):
+        for _ in range(self.parent_axon_nodes - 1):
 
             if node_D_after_branching == True:
 
                 P_main_axon = self.scaled_params(params, self.diam_scale)
                 nxt = self.append_one_step(self.main_axon[-1], P_main_axon)
                 self.main_axon.append(nxt)
+
+                total_length_um += params['Lstep']
+                self.node_distance_um[self.main_axon[-1].name()] = total_length_um
+
                 # вставляем 1 шаг со скейлом на 60 %
 
                 count_nodes_after_branching -= 1
-                #print(f"count_nodes_after_branching: {count_nodes_after_branching}")
+                # print(f"count_nodes_after_branching: {count_nodes_after_branching}")
                 if count_nodes_after_branching == 0:
                     node_D_after_branching = False
                     self.after_branch_main_id.extend(self.main_axon[-1])
 
             if node_D_after_branching == False:
-
                 nxt = self.append_one_step(self.main_axon[-1], params)
                 self.main_axon.append(nxt)
 
-            nodes +=1
-            #print(nodes)
-            # Надо высчитать длину типичного шага при append one step, но через ноды удобнее.
-            # TODO через вычисления длины нод сделать ветвление через какие-то промежутки
-            if nodes >= self.nodes_dist and self.branches_num != 0:
-                #print(f"Ветвление с шагом в: {nodes} нод")
+                # >>> INSERT: обновляем пройденную длину (мкм) до этой ноды
+                total_length_um += params['Lstep']
+                self.node_distance_um[self.main_axon[-1].name()] = total_length_um
 
-                self.branch_point_id.extend(self.main_axon[-1])
-                #before_branch_id += noedes - 3
+            nodes += 1
+            # print(nodes)
+            # Надо высчитать длину типичного шага при append one step, но через ноды удобнее.
+
+            if nodes >= self.nodes_dist and self.branches_num != 0:
+
+                # Точка ветвления — текущая последняя нода главного аксона
+                branch_node = self.main_axon[-1]
+
+                branch_distance_um = self.node_distance_um.get(branch_node.name(), None)
+                if branch_distance_um is not None:
+                    self.branch_point_distance_um.append(branch_distance_um)
+
+                # print(f"Ветвление с шагом в: {nodes} нод")
+
+                self.branch_point_id.extend(branch_node)
+
                 if len(self.main_axon) >= 3:
                     self.before_branch_id.extend(self.main_axon[-3])
                 else:
-                    self.before_branch_id.extend(self.main_axon[-1])
+                    self.before_branch_id.extend(branch_node)
 
+                #P_branch = self.scaled_params(params, self.diam_scale)
+                #term_chain = self.build_chain(self.branch_nodes, P_branch)
 
-                node_2 = self.make_node(params['nodeD'], self.nodelength, params['rpn0'])
-                node_2.connect(self.main_axon[-1], 1.0, 0.0)
+                P_base = params
+                P_scaled = self.scaled_params(params, self.diam_scale)
 
-                # Создаем дочернюю ветвь
-                P_branch = self.scaled_params(params, self.diam_scale)
-                term_chain = self.build_chain(self.branch_nodes, P_branch)
-                term_chain[0].connect(node_2, 0.0, 1.0)
-                #after_branch_daughter_id += term_chain + 3
+                term_chain = []
 
-                if len(term_chain) >= 3:
+                # первая нода дочки
+                d0 = self.make_node(P_scaled['nodeD'], self.nodelength, P_scaled['rpn0'])
+                d0.connect(branch_node, 0.0, 1.0)
+                term_chain.append(d0)
+
+                # дальше шаги
+                prev = d0
+                for i in range(1, self.branch_nodes):
+                    P = P_scaled if i < 3 else P_base  # первые 3 после d0 — scaled, дальше base
+                    nxt = self.append_one_step(prev, P)
+                    term_chain.append(nxt)
+                    prev = nxt
+
+                # --- Продолжение основного аксона
+                node_3 = self.make_node(params['nodeD'], self.nodelength, params['rpn0'])
+
+                #term_chain[0].connect(branch_node, 0.0, 1.0)  # дочерняя ветвь
+                node_3.connect(branch_node, 1.0, 0.0)  # продолжение main
+
+                # Запоминаем "3 ноды после" в дочерней ветке
+                if len(term_chain) >= 4:
                     self.after_branch_daughter_id.extend(term_chain[3])
                 else:
                     self.after_branch_daughter_id.extend(term_chain[-1])
 
-                # Продолжение основного аксона
-                node_3 = self.make_node(params['nodeD'], self.nodelength, params['rpn0'])
-                node_3.connect(node_2, 1.0, 0.0)
+                # Запоминаем "3 ноды после" в главном аксоне:
+                # В твоем коде это делалось через count_nodes_after_branching и append_one_step,
+                # поэтому здесь ничего не добавляем вручную — оно заполнится позже в цикле.
 
-                #after_branch_main_id += node_3 + 3
+                if branch_distance_um is None:
+                    print(f"[build_axon] Bifurcation at: {branch_node.name()}")
+                else:
+                    print(f"[build_axon] Bifurcation at: {branch_node.name()}  |  dist≈{branch_distance_um:.1f} µm")
 
-                # ИСПРАВЛЕННАЯ ОТЛАДОЧНАЯ ПЕЧАТЬ:
-                print(f"Ветвление: {self.main_axon[-1].name()} -> {node_2.name()}")
-                print(f"  Ветвь: {node_2.name()} -> {term_chain[0].name()}")
-                print(f"  Продолжение: {node_2.name()} -> {node_3.name()}")
+                print(f"[build_axon] Daughter: {branch_node.name()} -> {term_chain[0].name()}")
+                print(f"[build_axon] Main:     {branch_node.name()} -> {node_3.name()}")
 
-                terminals.append(node_2)
+                terminals.append(branch_node)
+
+                # main продолжается с node_3
                 self.main_axon.append(node_3)
+
                 node_D_after_branching = True
                 self.branches_num -= 1
                 nodes = 0
                 count_nodes_after_branching = 3
 
+        print("[build_axon] Ноды на которых будет вестись запись:")
+        print(f"[build_axon] Ветвление в точке: {self.branch_point_id}")
+        print(f"[build_axon] 3 ноды до точки ветвления: {self.before_branch_id}")
+        print(f"[build_axon] 3 ноды после точки ветвления в главном аксоне: {self.after_branch_main_id}")
+        print(f"[build_axon] 3 ноды после точки ветвления в дочерней ветке: {self.after_branch_daughter_id}")
+        print(f"[build_axon] Расстояния ветвления (µm): {self.branch_point_distance_um}")
+        if hasattr(self, "branch_every_um_effective"):
+            print(f"[build_axon] Фактический шаг ветвления (µm) после округления: {self.branch_every_um_effective:.1f}")
 
-
-        print("Ноды на которых будет вестись запись:")
-        print(f"Ветвление в точке: {self.branch_point_id}")
-        print(f"3 ноды до точки ветвления: {self.before_branch_id}")
-        print(f"3 ноды после точки ветвления в главном аксоне: {self.after_branch_main_id}")
-        print(f"3 ноды после точки ветвления в дочерней ветке: {self.after_branch_daughter_id}")
 
     # ------------------------------------------------------------------------------------
     # ------------------------------ СОЗДАНИЕ СТИМУЛЯТОРА --------------------------------
@@ -478,17 +529,20 @@ class MRGaxon:
             index_is_one_based = params["index_is_one_based"]
             t_end = params["t_end"]
             amp = params["amp"]
-            pulse_len_ms = params["pulse_len_ms"]
+            phase_ms = params["phase_us"] / 1000
+            gap_ms = params["gap_us"] / 1000
+
 
             ipulse_stimulator = STIMULATOR(self.main_axon[0], position=0.5, mode="preload_data")
             ipulse_stimulator.load_spike_times_from_csv(
                 csv_path=csv_path,
-                neuron_index=neuron_index,  # первый нейрон
+                neuron_index=neuron_index,
                 index_is_one_based=index_is_one_based,
-                t_max=t_end,  # первые 5 секунд
+                t_max=t_end,  # t_max в МИЛЛИСЕКУНДАХ
                 amp=amp,
-                pulse_len_ms=pulse_len_ms,
-                dt=dt
+                dt=dt,
+                phase_ms=phase_ms,
+                gap_ms=gap_ms,
             )
 
             self.stimulator = ipulse_stimulator
@@ -496,192 +550,50 @@ class MRGaxon:
             total_time = t_end # * 1000
             h.tstop = total_time
             self.h_stop = total_time
-            ipulse_stimulator.plot_waveform()
-
+            ipulse_stimulator.plot_waveform(plot_end=int(10//dt))
 
         elif mode == "create":
             params = self.stimulation_params
 
             freq = params["freq_hz"]
             amp = params["amp"]
-            t_start = params.get("t_start", 0.0)
+            t_start = params["t_start"]
             t_end = params["t_end"]
-            del_val = params["t_start"]
-            ton = params["ton"]
 
-            pulse_len_ms = params.get("pulse_len_ms", ton)
-            stimulation_duration_ms = t_end
+            phase_ms = params["phase_us"] / 1000
+            gap_ms = params["gap_us"] / 1000
+
+            bi_width_ms = 2 * phase_ms + gap_ms
+            stimulation_duration_ms = t_end - t_start
 
             # Расчет параметров стимуляции
             T_ms = 1000.0 / freq
-            toff = T_ms - ton
-            num_pulses = int(stimulation_duration_ms / T_ms)
-            print(f"[create] Анализ на частоте {freq} Гц:")
-            print(f"  Период: {T_ms:.2f} мс")
-            print(f"  Количество импульсов: {num_pulses}")
-            print(f"  Длительность стимуляции: {stimulation_duration_ms} мс")
+            if bi_width_ms > T_ms:
+                raise ValueError(
+                    f"Бифазный пульс ({bi_width_ms:.3f} ms) длиннее периода ({T_ms:.3f} ms) при freq={freq} Гц"
+                )
+
+            n_pulses = int(stimulation_duration_ms / T_ms)
+
+            print(f"[create_stimulator] freq={freq} Гц:")
+            print(f"[create_stimulator] Период: {T_ms:.3f} мс")
+            print(f"[create_stimulator] Ширина бифазного пакета: {bi_width_ms:.3f} мс "
+                  f"[create_stimulator] (2×{phase_ms:.3f} + {gap_ms:.3f})")
+            print(f"[create_stimulator] Количество пульсов: {n_pulses}")
+            print(f"[create_stimulator] Длительность стимуляции: {stimulation_duration_ms} мс")
 
             ipulse_stimulator = STIMULATOR(self.main_axon[0], position=0.5, mode="create")
-            ipulse_stimulator.set_parameters(t_start, ton, toff, num_pulses, amp, dt)
+            ipulse_stimulator.set_parameters(t_start, n_pulses, amp, dt, phase_ms, gap_ms, T_ms)
 
             self.stimulator = ipulse_stimulator
             # tstop с запасом
             total_time = stimulation_duration_ms
             h.tstop = total_time
             self.h_stop = total_time
-            ipulse_stimulator.plot_waveform()
+            #ipulse_stimulator.plot_waveform()
 
         else:
-            raise ValueError(f"Неизвестный режим стимуляции: {mode}")
-
-    # ------------------------------------------------------------------------------------
-    # ---------------------- АНАЛИЗ НА ОДНОЙ ЧАСТОТЕ С ГРАФИКАМИ ------------------------
-    # ------------------------------------------------------------------------------------
-
-
-
-    def _plot_single_frequency_results(self, results, plot_duration_ms=None):
-        """Строит детальные графики для одной частоты стимуляции"""
-
-        time_array = results['time_array']
-        voltage_matrix = results['voltage_matrix']
-        freq = results['frequency']
-
-        # Определяем индексы ключевых узлов
-        first_node_idx = 0
-        branch_idx = self.nodes_dist
-
-        # Для дочерней ветви находим подходящий индекс
-        daughter_branch_idx = None
-        for i in range(min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon)), len(self.main_axon)):
-            if self.main_axon[i] in self.after_branch_daughter_id:
-                daughter_branch_idx = i
-                break
-
-        if daughter_branch_idx is None:
-            daughter_branch_idx = min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon) - 1)
-
-        # Ограничиваем время отображения если указано
-        if plot_duration_ms is not None:
-            time_mask = time_array <= plot_duration_ms
-            plot_time = time_array[time_mask]
-            first_node_voltage = voltage_matrix[first_node_idx][time_mask]
-            branch_voltage = voltage_matrix[branch_idx][time_mask]
-            daughter_voltage = voltage_matrix[daughter_branch_idx][time_mask]
-            time_title_suffix = f" - первые {plot_duration_ms} мс"
-        else:
-            plot_time = time_array
-            first_node_voltage = voltage_matrix[first_node_idx]
-            branch_voltage = voltage_matrix[branch_idx]
-            daughter_voltage = voltage_matrix[daughter_branch_idx]
-            time_title_suffix = ""
-
-        # Создаем фигуру с 4 подграфиками
-        fig, axes = plt.subplots(4, 1, figsize=(15, 16))
-
-        # График 1: Первый узел
-        axes[0].plot(plot_time, first_node_voltage, 'b-', alpha=0.8, linewidth=1.5)
-        axes[0].set_title(f'Потенциал в первом узле ({freq} Гц){time_title_suffix}')
-        axes[0].set_ylabel('Потенциал (мВ)')
-        axes[0].grid(True, alpha=0.3)
-
-        # График 2: Точка ветвления
-        axes[1].plot(plot_time, branch_voltage, 'orange', alpha=0.8, linewidth=1.5)
-        axes[1].set_title(f'Потенциал в точке ветвления{time_title_suffix}')
-        axes[1].set_ylabel('Потенциал (мВ)')
-        axes[1].grid(True, alpha=0.3)
-
-        # График 3: Дочерняя ветвь
-        axes[2].plot(plot_time, daughter_voltage, 'r-', alpha=0.8, linewidth=1.5)
-        axes[2].set_title(f'Потенциал в дочерней ветви{time_title_suffix}')
-        axes[2].set_ylabel('Потенциал (мВ)')
-        axes[2].grid(True, alpha=0.3)
-
-        # График 4: Стимуляция
-        stim_time = np.array(results['stimulator'].time_vec)
-        stim_current = np.array(results['stimulator'].current_vec)
-
-        if plot_duration_ms is not None:
-            stim_mask = stim_time <= plot_duration_ms
-            plot_stim_time = stim_time[stim_mask]
-            plot_stim_current = stim_current[stim_mask]
-        else:
-            plot_stim_time = stim_time
-            plot_stim_current = stim_current
-
-        axes[3].plot(plot_stim_time, plot_stim_current, 'purple', alpha=0.8, linewidth=1.5)
-        axes[3].set_title(f'Протокол стимуляции ({results["num_pulses"]} импульсов){time_title_suffix}')
-        axes[3].set_xlabel('Время (мс)')
-        axes[3].set_ylabel('Ток (нА)')
-        axes[3].grid(True, alpha=0.3)
-
-        # Общий заголовок
-        fig.suptitle(
-            f'MRG Аксон {self.fiber_diameter} мкм - Стимуляция {freq} Гц, '
-            f'{results["stimulation_duration_ms"]} мс, Амплитуда {results["stimulator"].amp} нА',
-            fontsize=14,
-            fontweight='bold',
-            y=0.95
-        )
-
-        plt.tight_layout()
-        plt.show()
-
-        return fig
-
-    def analyze_conduction_efficiency(self, voltage_matrix, time_array, threshold=-20):
-        """Анализирует эффективность проведения через ветвление"""
-
-        from scipy.signal import find_peaks
-
-        # Находим индексы ключевых узлов
-        before_branch_idx = self.nodes_dist - 2 if self.nodes_dist >= 2 else 0
-        after_main_idx = self.nodes_dist + 2
-        after_daughter_idx = None
-
-        # Находим индекс для дочерней ветви
-        for i in range(min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon)), len(self.main_axon)):
-            if self.main_axon[i] in self.after_branch_daughter_id:
-                after_daughter_idx = i
-                break
-
-        if after_daughter_idx is None:
-            after_daughter_idx = min(self.nodes_dist + self.branch_nodes + 2, len(self.main_axon) - 1)
-
-        # Проверяем границы индексов
-        before_branch_idx = max(0, min(before_branch_idx, len(self.main_axon) - 1))
-        after_main_idx = max(0, min(after_main_idx, len(self.main_axon) - 1))
-        after_daughter_idx = max(0, min(after_daughter_idx, len(self.main_axon) - 1))
-
-        # Подсчет спайков в каждой точке
-        def count_spikes(voltage_trace, threshold):
-            if len(voltage_trace) == 0:
-                return 0
-            peaks, _ = find_peaks(voltage_trace, height=threshold, distance=int(2 / self.dt_ms))
-            return len(peaks)
-
-        spikes_before = count_spikes(voltage_matrix[before_branch_idx], threshold)
-        spikes_main = count_spikes(voltage_matrix[after_main_idx], threshold)
-        spikes_daughter = count_spikes(voltage_matrix[after_daughter_idx], threshold)
-
-        # Расчет эффективности проведения
-        if spikes_before > 0:
-            main_efficiency = spikes_main / spikes_before
-            daughter_efficiency = spikes_daughter / spikes_before
-        else:
-            main_efficiency = 0
-            daughter_efficiency = 0
-
-        return {
-            'spikes_before': spikes_before,
-            'spikes_main': spikes_main,
-            'spikes_daughter': spikes_daughter,
-            'main_efficiency': main_efficiency,
-            'daughter_efficiency': daughter_efficiency,
-            'before_branch_idx': before_branch_idx,
-            'after_main_idx': after_main_idx,
-            'after_daughter_idx': after_daughter_idx
-        }
+            raise ValueError(f"[create_stimulator] Неизвестный режим стимуляции: {mode}")
 
     # ------------------------------------------------------------------------------------
     # ------------------------------ ЗАПУСК СИМУЛЯЦИИ --- --------------------------------
@@ -754,9 +666,9 @@ class MRGaxon:
         self.time_array = np.array(record_t)
         self.recording_labels = key_names  # по оси 0 voltage_matrix
 
-        print(f"voltage matrix: {self.voltage_matrix.shape}")
-        print(f"time array: {self.time_array.shape}")
-        print(f"recording_labels: {(self.recording_indices)}")
+        #print(f"voltage matrix: {self.voltage_matrix.shape}")
+        #print(f"time array: {self.time_array.shape}")
+        #print(f"recording_labels: {(self.recording_indices)}")
 
         if h5_path is not None:
             if experiment_name is None:
@@ -798,9 +710,8 @@ class MRGaxon:
             if sec not in reg_set:
                 yield sec, "other"
 
-
     def plot_morphology_3d(self, save_path=None):
-        """Визуализирует 3D морфологию аксона."""
+        """Визуализирует 3D морфологию аксона + точки записи."""
         h.define_shape()
 
         fig = plt.figure(figsize=(12, 10))
@@ -834,10 +745,76 @@ class MRGaxon:
                     linewidth=2.0,
                     label=label)
 
+        # ---------------------------------------------------------------------
+        # ДОБАВКА: точки записи (branch/before/after main/after daughter)
+        # ---------------------------------------------------------------------
+
+        def _seg_xyz(seg_or_sec):
+            """Возвращает (x,y,z) точки вдоль секции в позиции seg.x (или 0.5 если это Section)."""
+            # 1) приводим к (sec, x)
+            try:
+                # если это Segment
+                sec = seg_or_sec.sec
+                pos = float(seg_or_sec.x)
+            except Exception:
+                # если это Section
+                sec = seg_or_sec
+                pos = 0.5
+
+            n3d = int(h.n3d(sec=sec))
+            if n3d < 2:
+                # fallback: если нет 3D-точек
+                return None
+
+            # 2) кумулятивная длина по 3D-точкам
+            arc = [h.arc3d(i, sec=sec) for i in range(n3d)]
+            xs = [h.x3d(i, sec=sec) for i in range(n3d)]
+            ys = [h.y3d(i, sec=sec) for i in range(n3d)]
+            zs = [h.z3d(i, sec=sec) for i in range(n3d)]
+
+            L = float(sec.L)
+
+            s = pos * L  # целевая длина вдоль секции
+
+            # 3) находим отрезок, где лежит s, и линейно интерполируем
+            for i in range(n3d - 1):
+                if arc[i] <= s <= arc[i + 1]:
+                    denom = (arc[i + 1] - arc[i])
+                    if denom <= 0:
+                        t = 0.0
+                    else:
+                        t = (s - arc[i]) / denom
+                    x = xs[i] + t * (xs[i + 1] - xs[i])
+                    y = ys[i] + t * (ys[i + 1] - ys[i])
+                    z = zs[i] + t * (zs[i + 1] - zs[i])
+                    return (x, y, z)
+
+            # если s вне диапазона (редко, но бывает из-за округлений)
+            return (xs[-1], ys[-1], zs[-1])
+
+        def _scatter_points(obj_list, label, marker):
+            pts = []
+            for obj in obj_list:
+                xyz = _seg_xyz(obj)
+                if xyz is not None:
+                    pts.append(xyz)
+            if pts:
+                X, Y, Z = zip(*pts)
+                ax.scatter(X, Y, Z, s=80, marker=marker, depthshade=True, label=label)
+
+        # ВАЖНО: если у тебя списки хранят Sections — тоже ок.
+        # Если хранят Segments — тоже ок.
+        _scatter_points(getattr(self, "branch_point_id", []), "record: branch", "x")
+        _scatter_points(getattr(self, "before_branch_id", []), "record: before", "^")
+        _scatter_points(getattr(self, "after_branch_main_id", []), "record: after main", "o")
+        _scatter_points(getattr(self, "after_branch_daughter_id", []), "record: after daughter", "s")
+
+        # ---------------------------------------------------------------------
+
         ax.set_xlabel("X (µm)")
         ax.set_ylabel("Y (µm)")
         ax.set_zlabel("Z (µm)")
-        ax.set_title("3D Морфология MRG аксона с ветвлениями")
+        ax.set_title("3D Морфология MRG аксона с ветвлениями (с точками записи)")
         ax.legend()
 
         plt.tight_layout()
@@ -848,7 +825,7 @@ class MRGaxon:
 
         plt.show()
 
-    def plot_voltage_traces(self, save_path=None):
+    def plot_voltage_traces(self, save_path=None, plot_start = 0, plot_end = 1000, plot_branch=0 ):
         """Визуализирует потенциалы действия в ключевых точках аксона."""
 
 
@@ -860,9 +837,18 @@ class MRGaxon:
             return
 
         # Находим индексы для каждой группы записей
-        before_indices = [i for i, name in self.recording_indices.items() if name == 'before_branch']
-        after_main_indices = [i for i, name in self.recording_indices.items() if name == 'after_branch_main']
-        after_daughter_indices = [i for i, name in self.recording_indices.items() if name == 'after_branch_daughter']
+        before_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'before_branch'
+        ]
+        after_main_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'after_branch_main'
+        ]
+        after_daughter_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'after_branch_daughter'
+        ]
 
         print(f"Индексы для построения:")
         print(f"  До ветвления: {before_indices}")
@@ -875,21 +861,19 @@ class MRGaxon:
             return
 
         # Берем первые ноды из каждой группы
-        before_idx = before_indices[0]
-        after_main_idx = after_main_indices[0]
-        after_daughter_idx = after_daughter_indices[0]
+        before_idx = before_indices[plot_branch]
+        after_main_idx = after_main_indices[plot_branch]
+        after_daughter_idx = after_daughter_indices[plot_branch]
 
         # Создаем фигуру с 5 графиками в одном столбце
         fig, axes = plt.subplots(5, 1, figsize=(12, 15))
-        '''
         title_text = (f"MRG Аксон: диаметр {self.fiber_diameter} мкм, "
                       f"Частота: {self.stimulation_params['freq_hz']} Гц, "
                       f"Сила тока: {self.stimulation_params['amp']} нА")
-        
+
         fig.suptitle(title_text, fontsize=14, fontweight='bold', y=0.98)
-        '''
         # График 1: До ветвления
-        axes[0].plot(self.time_array, self.voltage_matrix[before_idx],
+        axes[0].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[before_idx][plot_start:plot_end],
                      label=f'До ветвления (индекс {before_idx})', linewidth=2, color='blue')
         axes[0].set_xlabel("Время (мс)")
         axes[0].set_ylabel("Мембранный потенциал (мВ)")
@@ -898,7 +882,7 @@ class MRGaxon:
         axes[0].legend()
 
         # График 2: После ветвления (основная ветвь)
-        axes[1].plot(self.time_array, self.voltage_matrix[after_main_idx],
+        axes[1].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[after_main_idx][plot_start:plot_end],
                      label=f'После ветвления (основная, индекс {after_main_idx})', linewidth=2, color='red')
         axes[1].set_xlabel("Время (мс)")
         axes[1].set_ylabel("Мембранный потенциал (мВ)")
@@ -907,7 +891,7 @@ class MRGaxon:
         axes[1].legend()
 
         # График 3: После ветвления (дочерняя ветвь)
-        axes[2].plot(self.time_array, self.voltage_matrix[after_daughter_idx],
+        axes[2].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[after_daughter_idx][plot_start:plot_end],
                      label=f'После ветвления (дочерняя, индекс {after_daughter_idx})', linewidth=2, color='green')
         axes[2].set_xlabel("Время (мс)")
         axes[2].set_ylabel("Мембранный потенциал (мВ)")
@@ -916,11 +900,11 @@ class MRGaxon:
         axes[2].legend()
 
         # График 4: Все три вместе
-        axes[3].plot(self.time_array, self.voltage_matrix[before_idx],
+        axes[3].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[before_idx][plot_start:plot_end],
                      label=f'До ветвления (индекс {before_idx})', linewidth=2, color='blue')
-        axes[3].plot(self.time_array, self.voltage_matrix[after_main_idx],
+        axes[3].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[after_main_idx][plot_start:plot_end],
                      label=f'После ветвления (основная, индекс {after_main_idx})', linewidth=2, color='red')
-        axes[3].plot(self.time_array, self.voltage_matrix[after_daughter_idx],
+        axes[3].plot(self.time_array[plot_start:plot_end], self.voltage_matrix[after_daughter_idx][plot_start:plot_end],
                      label=f'После ветвления (дочерняя, индекс {after_daughter_idx})', linewidth=2, color='green')
         axes[3].set_xlabel("Время (мс)")
         axes[3].set_ylabel("Мембранный потенциал (мВ)")
@@ -928,14 +912,17 @@ class MRGaxon:
         axes[3].grid(True, alpha=0.3)
         axes[3].legend()
 
+        self.t_points = np.array(self.stimulator.time_vec)
+        self.i_points = np.array(self.stimulator.current_vec)
         # График 5: Стимулы
         if hasattr(self, 't_points') and hasattr(self, 'i_points'):
-            axes[4].plot(self.t_points, self.i_points, linewidth=2, color='purple')
+
+            axes[4].plot(self.t_points[plot_start:plot_end], self.i_points[plot_start:plot_end], linewidth=2, color='purple')
             axes[4].set_xlabel("Время (мс)")
             axes[4].set_ylabel("Ток стимуляции (нА)")
             axes[4].set_title("Протокол стимуляции")
             axes[4].grid(True, alpha=0.3)
-            axes[4].set_ylim(-0.1, self.stimulation_params['amp'] * 1.1)
+            #axes[4].set_ylim(-1 * self.stimulation_params['amp'] * 1.1, self.stimulation_params['amp'] * 1.1)
 
         # Настраиваем layout
         plt.tight_layout()
@@ -993,9 +980,18 @@ class MRGaxon:
         results = {}
 
         # Находим индексы для каждой группы записей
-        before_indices = [i for i, name in self.recording_indices.items() if name == 'before_branch']
-        after_main_indices = [i for i, name in self.recording_indices.items() if name == 'after_branch_main']
-        after_daughter_indices = [i for i, name in self.recording_indices.items() if name == 'after_branch_daughter']
+        before_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'before_branch'
+        ]
+        after_main_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'after_branch_main'
+        ]
+        after_daughter_indices = [
+            i for i, meta in self.recording_indices.items()
+            if meta["group"] == 'after_branch_daughter'
+        ]
 
         # Анализируем спайки в каждой группе
         for indices, group_name in [(before_indices, 'before_branch'),
@@ -1137,4 +1133,43 @@ class MRGaxon:
 
             print(f"[save_to_hdf5] Сохранено в {h5_path} под группой '{experiment_name}'")
 
+    def print_all_parameters(self):
+        """Выводит все параметры модели для отладки и записи"""
+        print("\n" + "=" * 80)
+        print("ПАРАМЕТРЫ МОДЕЛИ")
+        print("=" * 80)
 
+        print("\n--- ОСНОВНЫЕ ПАРАМЕТРЫ ---")
+        print(f"Диаметр волокна: {self.fiber_diameter} мкм")
+        print(f"Температура: {self.celsius} °C")
+        print(f"Шаг времени: {self.dt_ms} мс")
+        print(f"Начальное напряжение: {self.v_init} мВ")
+        print(f"Время симуляции: {self.h_stop} мс")
+
+        print("\n--- ПАРАМЕТРЫ МОРФОЛОГИИ ---")
+        print(f"Узлов в основном аксоне: {self.parent_axon_nodes}")
+        print(f"Узлов в ветви: {self.branch_nodes}")
+        print(f"Количество ветвей: {self.branches_num}")
+        print(f"Расстояние между ветвлениями: {self.nodes_dist} сегментов")
+        print(f"Масштаб диаметра: {self.diam_scale}")
+        print(f"Шаг ветвления (запрошенный): {self.branch_every_um} мкм")
+        print(f"Шаг ветвления (фактический): {self.branch_every_um_effective:.1f} мкм")
+
+        print("\n--- ПАРАМЕТРЫ MRG ДЛЯ ДАННОГО ДИАМЕТРА ---")
+        print(f"Диаметр аксона: {self.mrg_params['axonD']} мкм")
+        print(f"Диаметр узла: {self.mrg_params['nodeD']} мкм")
+        print(f"Диаметр MYSA: {self.mrg_params['paraD1']} мкм")
+        print(f"Диаметр FLUT: {self.mrg_params['paraD2']} мкм")
+        print(f"Длина MYSA: {self.mrg_params['paral1']} мкм")
+        print(f"Длина FLUT: {self.mrg_params['paral2']} мкм")
+        print(f"Длина интернода (STIN): {self.mrg_params['interL']} мкм")
+        print(f"Шаг между узлами (Lstep): {self.mrg_params['Lstep']} мкм")
+        print(f"Плотность натриевых каналов (g): {self.mrg_params.get('g', 'N/A')}")
+
+        print("\n--- ЭЛЕКТРИЧЕСКИЕ ПАРАМЕТРЫ ---")
+        print(f"Удельное сопротивление аксоплазмы (rho_a): {self.rho_a} Ом·мкм")
+        print(f"Ёмкость миелина (mycm): {self.mycm} мкФ/см²")
+        print(f"Проводимость миелина (mygm): {self.mygm} См/см²")
+        print(f"Проводимость натриевых каналов в узле: {self.gna_axnode} См/см²")
+        print(f"Масштаб проводимости nap: {self.gnapbar_scale}")
+        print("=" * 80 + "\n")

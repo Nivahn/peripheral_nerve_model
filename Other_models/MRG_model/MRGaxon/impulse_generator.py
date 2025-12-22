@@ -3,7 +3,6 @@ from neuron import h
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 class STIMULATOR:
     """
     Генератор тока для NEURON, работающий в двух режимах:
@@ -57,7 +56,7 @@ class STIMULATOR:
     # -----------------------------------------------------------------------------
     # РЕЖИМ 1: Генерация импульсов
     # -----------------------------------------------------------------------------
-    def set_parameters(self, t_start, ton, toff, num, amp, dt):
+    def set_parameters(self, t_start, n_pulses, amp, dt, phase_ms, gap_ms, T_ms):
         """
         Устанавливает параметры стимуляции в режиме 'generate' (поезд импульсов).
         del_val: задержка (ms)
@@ -68,44 +67,61 @@ class STIMULATOR:
         """
 
         self.mode = "generate"
-
+        self.T_ms = T_ms
         self.del_val = t_start
-        self.ton = ton
-        self.toff = toff
-        self.num = num
+        self.n_pulses = n_pulses
         self.amp = amp
         self.dt = dt
+        self.t_start = t_start
+        self.phase_ms = phase_ms
+        self.gap_ms = gap_ms
 
         self._generate_waveform()
 
     def _generate_waveform(self):
-        """Генерирует форму сигнала импульсов"""
-        # Рассчитываем общее время симуляции
-        total_time = self.t_start + self.num * (self.ton + self.toff) + 100  # +100 мс запас
-        self.total_time_ms = total_time
-        # Создаем временной вектор с высоким разрешением
-        # мс
-        t_points = np.arange(0, total_time, self.dt)
-        i_points = np.zeros(len(t_points))
+        """
+        Генерирует БИФАЗНЫЙ ток:
+        анодная фаза (+amp) → пауза (0) → катодная фаза (-amp),
+        повторяется n_pulses раз с периодом T_ms.
+        """
+        # 1) общее время = t_start + n_pulses * период
+        self.total_time_ms = self.t_start + self.n_pulses * self.T_ms
 
-        # Генерируем импульсы
-        for i in range(self.num):
-            start_time = self.t_start + i * (self.ton + self.toff)
-            end_time = start_time + self.ton
+        # 2) временная сетка
+        t_points = np.arange(0.0, self.total_time_ms, self.dt)
+        i_points = np.zeros_like(t_points)
 
-            # Находим индексы для этого импульса
-            start_idx = int(start_time / self.dt)
-            end_idx = int(end_time / self.dt)
+        # 3) генерируем бифазные импульсы
+        for pulse in range(self.n_pulses):
+            # начало периода
+            t0 = self.t_start + pulse * self.T_ms
 
-            # Устанавливаем амплитуду в течение импульса
-            if start_idx < len(i_points) and end_idx < len(i_points):
-                i_points[start_idx:end_idx] = self.amp
+            # первая (анодная) фаза
+            t1_start = t0
+            t1_end   = t0 + self.phase_ms
 
-        # Создаем векторы NEURON
-        self.time_vec = h.Vector(t_points)
-        self.current_vec = h.Vector(i_points)
+            # пауза
+            t_gap_start = t1_end
+            t_gap_end   = t_gap_start + self.gap_ms
 
-        # Подключаем к стимулятору
+            # вторая (катодная) фаза
+            t2_start = t_gap_end
+            t2_end   = t2_start + self.phase_ms
+
+            idx1_s = int(t1_start / self.dt)
+            idx1_e = int(t1_end   / self.dt)
+            idx2_s = int(t2_start / self.dt)
+            idx2_e = int(t2_end   / self.dt)
+
+            if idx1_s < len(i_points):
+                idx1_e = min(idx1_e, len(i_points))
+                i_points[idx1_s:idx1_e] = self.amp      # анодная фаза
+
+            if idx2_s < len(i_points):
+                idx2_e = min(idx2_e, len(i_points))
+                i_points[idx2_s:idx2_e] = -self.amp     # катодная фаза
+
+        # 4) подключаем к NEURON
         self._set_play_vectors(t_points, i_points)
 
     # -----------------------------------------------------------------------------
@@ -114,18 +130,17 @@ class STIMULATOR:
     def set_spike_times(self,
                         spike_times_ms,
                         amp=1.0,
-                        pulse_len_ms=1.0,
                         t_max_ms=None,
-                        dt=0.01):
+                        dt=0.01,
+                        phase_ms=0.0004,
+                        gap_ms=0.00005):
         """
-        Настройка стимуляции по временам спайков (режим 'from_spikes').
+        Бифазный стим на основе spike_times_ms:
+        +amp  ⋅ phase_us
+         0   ⋅ gap_us
+        -amp ⋅ phase_us
+        """
 
-        spike_times_ms: массив времен спайков в миллисекундах
-        amp: амплитуда импульса (nA)
-        pulse_len_ms: длительность токового импульса вокруг спайка (ms)
-        t_max_ms: максимальное время (если None - берём max(spike_times) + pulse_len + 100)
-        dt: шаг по времени для дискрета (ms)
-        """
         self.mode = "from_spikes"
 
         spike_times_ms = np.asarray(spike_times_ms, dtype=float)
@@ -134,34 +149,53 @@ class STIMULATOR:
 
         self.spike_times_ms = spike_times_ms
         self.amp = float(amp)
-        self.pulse_len_ms = float(pulse_len_ms)
         self.dt = float(dt)
 
         if spike_times_ms.size == 0:
-            # Пустой стим
             self.total_time_ms = t_max_ms if t_max_ms is not None else 100.0
             t_points = np.arange(0.0, self.total_time_ms, self.dt)
             i_points = np.zeros_like(t_points)
             self._set_play_vectors(t_points, i_points)
             return
 
+        # Общее время симуляции
         if t_max_ms is None:
-            t_max_ms = spike_times_ms.max() + self.pulse_len_ms + 100.0
+            t_max_ms = spike_times_ms.max() + 5 * (phase_ms + gap_ms)
+
         self.total_time_ms = t_max_ms
 
+        # Сетка времени
         t_points = np.arange(0.0, t_max_ms, self.dt)
         i_points = np.zeros_like(t_points)
 
-        for t_spk in spike_times_ms:
-            start_time = t_spk
-            end_time = t_spk + self.pulse_len_ms
+        # --- Бифазный стим на каждый spike ---
+        for t0 in spike_times_ms:
 
-            start_idx = int(start_time / self.dt)
-            end_idx = int(end_time / self.dt)
+            # фаза +
+            t1s = t0
+            t1e = t0 + phase_ms
 
-            if start_idx < len(i_points):
-                end_idx = min(end_idx, len(i_points))
-                i_points[start_idx:end_idx] = self.amp
+            # пауза
+            t2s = t1e
+            t2e = t2s + gap_ms
+
+            # фаза -
+            t3s = t2e
+            t3e = t3s + phase_ms
+
+            # индексы
+            i1s = int(t1s / dt)
+            i1e = int(t1e / dt)
+            i3s = int(t3s / dt)
+            i3e = int(t3e / dt)
+
+            # первая фаза
+            if i1s < len(i_points):
+                i_points[i1s:min(i1e, len(i_points))] = amp
+
+            # вторая фаза
+            if i3s < len(i_points):
+                i_points[i3s:min(i3e, len(i_points))] = -amp
 
         self._set_play_vectors(t_points, i_points)
 
@@ -171,8 +205,9 @@ class STIMULATOR:
                                   index_is_one_based=False,
                                   t_max=None,
                                   amp=1.0,
-                                  pulse_len_ms=1.0,
-                                  dt=0.05):
+                                  dt=0.05,
+                                  phase_ms=0.0004,
+                                  gap_ms=0.00005):
         """
         Загружает времена спайков из CSV и настраивает стимуляцию в режиме 'from_spikes'.
 
@@ -210,14 +245,15 @@ class STIMULATOR:
 
         self.set_spike_times(spike_times_ms,
                              amp=amp,
-                             pulse_len_ms=pulse_len_ms,
                              t_max_ms=t_max,
-                             dt=dt)
+                             dt=dt,
+                             phase_ms=phase_ms,
+                             gap_ms=gap_ms)
     # -----------------------------------------------------------------------------
     # Общая часть: подключение к NEURON и визуализация
     # -----------------------------------------------------------------------------
 
-    def plot_waveform(self, show_plot=True):
+    def plot_waveform(self, show_plot=True, plot_end=1000):
         """Визуализирует форму сигнала"""
         if self.time_vec is None or self.current_vec is None:
             print("Сначала задайте стимуляцию (set_parameters или set_spike_times / load_spike_times_from_csv).")
@@ -237,7 +273,7 @@ class STIMULATOR:
         elif self.mode == "from_spikes":
             n_spikes = 0 if self.spike_times_ms is None else len(self.spike_times_ms)
             plt.title(f'Stim (from_spikes): {n_spikes} спайков, '
-                      f'Pulse={self.pulse_len_ms}мс, Amp={self.amp}нА, Neuron_idx = {self.neuron_index}')
+                      f'Amp={self.amp}нА, Neuron_idx = {self.neuron_index}')
         else:
             plt.title('Stimulator')
 
@@ -274,13 +310,3 @@ class STIMULATOR:
 
         return info
 
-    def __repr__(self):
-        info = self.get_info()
-        if self.mode == "generate":
-            return (f"stimulator(mode='generate', del={info['del_val']}ms, ton={info['ton']}ms, "
-                    f"toff={info['toff']}ms, num={info['num']}, amp={info['amp']}nA)")
-        elif self.mode == "from_spikes":
-            return (f"stimulator(mode='from_spikes', n_spikes={info['n_spikes']}, "
-                    f"pulse_len={info['pulse_len_ms']}ms, amp={info['amp']}nA)")
-        else:
-            return f"stimulator(mode='{self.mode}', amp={info['amp']}nA)"
