@@ -3,11 +3,11 @@ from MRG_lib import *
 
 
 frequencies = list(range(50, 1001, 50))   # 50,150,...,950,1000 Гц
-stimulation_duration_ms = 1000.0           # 1 секунда
-amp_nA = 1                       # амплитуда импульса
+stimulation_duration_ms = 5000.0           # 1 секунда
+amp_nA = 5                       # амплитуда импульса
 dt = 0.005                            # dt модели
 v_init = -80.0
-h_stop_ms = 1010.0                         # после стимуляции ещё хвост
+h_stop_ms = 5010.0                         # после стимуляции ещё хвост
 
 
 axon = MRGaxon(
@@ -22,7 +22,7 @@ axon = MRGaxon(
     v_init=v_init,
     h_stop=h_stop_ms
 )
-frequencies = [50, 1000]
+frequencies = [1000]
 
 
 for freq in frequencies:
@@ -60,8 +60,25 @@ for freq in frequencies:
 
     axon.plot_voltage_traces(plot_start =plot_start, plot_end=plot_end)
 
+    plot_start = int(10 // dt)
+    plot_end = int(5000 // dt)
 
+    axon.plot_voltage_traces(plot_start =plot_start, plot_end=plot_end)
 
+    plot_start = int(4010 // dt)
+    plot_end = int(5000 // dt)
+
+    axon.plot_voltage_traces(plot_start =plot_start, plot_end=plot_end)
+
+    plot_start = int(4500 // dt)
+    plot_end = int(5000 // dt)
+
+    axon.plot_voltage_traces(plot_start =plot_start, plot_end=plot_end)
+
+    plot_start = int(1000 // dt)
+    plot_end = int(2000 // dt)
+
+    axon.plot_voltage_traces(plot_start =plot_start, plot_end=plot_end)
 '''
 csv_50Hz = "./../../../Data/SCS_LTMRs_50Hz_Timestamps.csv"
 

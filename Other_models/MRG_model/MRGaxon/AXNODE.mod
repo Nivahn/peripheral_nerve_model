@@ -16,15 +16,19 @@ TITLE Motor Axon Node channels
 INDEPENDENT {t FROM 0 TO 1 WITH 1 (ms)}
 
 NEURON {
-	SUFFIX newaxnode
-	NONSPECIFIC_CURRENT ina
-	NONSPECIFIC_CURRENT inap
-	NONSPECIFIC_CURRENT ik
-	NONSPECIFIC_CURRENT il
-	RANGE gnapbar, gnabar, gkbar, gl, ena, ek, el
-	RANGE mp_inf, m_inf, h_inf, s_inf
-	RANGE tau_mp, tau_m, tau_h, tau_s
+    SUFFIX newaxnode
+    NONSPECIFIC_CURRENT ina
+    NONSPECIFIC_CURRENT inap
+    NONSPECIFIC_CURRENT ik
+    NONSPECIFIC_CURRENT il
+
+    RANGE gnapbar, gnabar, gkbar, gl, ena, ek, el
+    RANGE mp_inf, m_inf, h_inf, s_inf
+    RANGE tau_mp, tau_m, tau_h, tau_s
+
+    RANGE ko, ko0, ki, tau_clear, cleft_um, beta
 }
+
 
 
 UNITS {
@@ -39,7 +43,12 @@ PARAMETER {
 	gkbar   = 0.08 	(mho/cm2)
 	gl	= 0.007 (mho/cm2)
 	ena     = 50.0  (mV)
-	ek      = -90.0 (mV)
+    ko0 = 3.5
+    ki  = 140
+    tau_clear = 40 (ms)
+    cleft_um  = 0.002
+    beta      = 500
+
 	el	= -90.0 (mV)
 	celsius		(degC)
 	dt              (ms)
@@ -70,43 +79,56 @@ PARAMETER {
 	bsC = 1
 }
 
-STATE {
-	mp m h s
-}
+STATE { mp m h s ko }
+
 
 ASSIGNED {
-	inap    (mA/cm2)
-	ina	(mA/cm2)
-	ik      (mA/cm2)
-	il      (mA/cm2)
-	mp_inf
-	m_inf
-	h_inf
-	s_inf
-	tau_mp
-	tau_m
-	tau_h
-	tau_s
-	q10_1
-	q10_2
-	q10_3
+    inap (mA/cm2)
+    ina  (mA/cm2)
+    ik   (mA/cm2)
+    il   (mA/cm2)
+    ek   (mV)
+    mp_inf
+    m_inf
+    h_inf
+    s_inf
+    tau_mp
+    tau_m
+    tau_h
+    tau_s
+    q10_1
+    q10_2
+    q10_3
 }
+
 
 BREAKPOINT {
-	SOLVE states METHOD cnexp
-	inap = gnapbar * mp*mp*mp * (v - ena)
-	ina = gnabar * m*m*m*h * (v - ena)
-	ik   = gkbar * s * (v - ek)
-	il   = gl * (v - el)
+    SOLVE states METHOD cnexp
+    calc_ek()
+    inap = gnapbar * mp*mp*mp * (v - ena)
+    ina  = gnabar  * m*m*m*h  * (v - ena)
+    ik   = gkbar   * s        * (v - ek)
+    il   = gl * (v - el)
 }
 
+
 DERIVATIVE states {   : exact Hodgkin-Huxley equations
-       evaluate_fct(v)
-	mp'= (mp_inf - mp) / tau_mp
-	m' = (m_inf - m) / tau_m
-	h' = (h_inf - h) / tau_h
-	s' = (s_inf - s) / tau_s
+    LOCAL ik_local, cleft_cm
+
+    evaluate_fct(v)
+    calc_ek()
+
+    cleft_cm = cleft_um * 1e-4
+    ik_local = gkbar * s * (v - ek)
+
+    ko' = (ik_local / (96485.0 * cleft_cm * beta)) + (ko0 - ko) / tau_clear
+
+    mp' = (mp_inf - mp) / tau_mp
+    m'  = (m_inf  - m ) / tau_m
+    h'  = (h_inf  - h ) / tau_h
+    s'  = (s_inf  - s ) / tau_s
 }
+
 
 UNITSOFF
 
@@ -124,6 +146,9 @@ INITIAL {
 	m = m_inf
 	h = h_inf
 	s = s_inf
+    ko = ko0
+    calc_ek()
+
 }
 
 PROCEDURE evaluate_fct(v(mV)) { LOCAL a,b,v2
@@ -148,6 +173,12 @@ PROCEDURE evaluate_fct(v(mV)) { LOCAL a,b,v2
 	tau_s = 1 / (a + b)
 	s_inf = a / (a + b)
 }
+
+PROCEDURE calc_ek() {
+    if (ko < 0.1) { ko = 0.1 }
+    ek = (1000.0 * 8.314 * (273.15 + celsius) / 96485.0) * log(ko/ki)
+}
+
 
 FUNCTION vtrap0(x) {
 	if (fabs((x+asB)/asC) < 1e-6) {

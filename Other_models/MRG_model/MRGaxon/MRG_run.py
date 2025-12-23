@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.signal import find_peaks
 from MRG_lib import *
 
-
+'''
 import h5py
 from MRG_lib import *
 from tqdm import tqdm
@@ -134,7 +134,7 @@ for amp_nA in tqdm(amplitudes, desc="Amplitudes"):
     print(f"  amp={amp_nA} Hz done in {dt:.2f} s")
 
 print(f"[TIMER] total experiment time = {time.perf_counter() - t0:.1f} s")
-
+'''
 '''
 
 

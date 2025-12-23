@@ -29,6 +29,7 @@ extern double hoc_Exp(double);
 #define nrn_jacob _nrn_jacob__newaxnode
 #define nrn_state _nrn_state__newaxnode
 #define _net_receive _net_receive__newaxnode 
+#define calc_ek calc_ek__newaxnode 
 #define evaluate_fct evaluate_fct__newaxnode 
 #define states states__newaxnode 
  
@@ -55,60 +56,74 @@ extern double hoc_Exp(double);
 #define gl_columnindex 3
 #define ena _p[4]
 #define ena_columnindex 4
-#define ek _p[5]
-#define ek_columnindex 5
-#define el _p[6]
-#define el_columnindex 6
-#define inap _p[7]
-#define inap_columnindex 7
-#define ina _p[8]
-#define ina_columnindex 8
-#define ik _p[9]
-#define ik_columnindex 9
-#define il _p[10]
-#define il_columnindex 10
-#define mp_inf _p[11]
-#define mp_inf_columnindex 11
-#define m_inf _p[12]
-#define m_inf_columnindex 12
-#define h_inf _p[13]
-#define h_inf_columnindex 13
-#define s_inf _p[14]
-#define s_inf_columnindex 14
-#define tau_mp _p[15]
-#define tau_mp_columnindex 15
-#define tau_m _p[16]
-#define tau_m_columnindex 16
-#define tau_h _p[17]
-#define tau_h_columnindex 17
-#define tau_s _p[18]
-#define tau_s_columnindex 18
-#define mp _p[19]
-#define mp_columnindex 19
-#define m _p[20]
-#define m_columnindex 20
-#define h _p[21]
-#define h_columnindex 21
-#define s _p[22]
-#define s_columnindex 22
-#define Dmp _p[23]
-#define Dmp_columnindex 23
-#define Dm _p[24]
-#define Dm_columnindex 24
-#define Dh _p[25]
-#define Dh_columnindex 25
-#define Ds _p[26]
-#define Ds_columnindex 26
-#define q10_1 _p[27]
-#define q10_1_columnindex 27
-#define q10_2 _p[28]
-#define q10_2_columnindex 28
-#define q10_3 _p[29]
-#define q10_3_columnindex 29
-#define v _p[30]
-#define v_columnindex 30
-#define _g _p[31]
-#define _g_columnindex 31
+#define ko0 _p[5]
+#define ko0_columnindex 5
+#define ki _p[6]
+#define ki_columnindex 6
+#define tau_clear _p[7]
+#define tau_clear_columnindex 7
+#define cleft_um _p[8]
+#define cleft_um_columnindex 8
+#define beta _p[9]
+#define beta_columnindex 9
+#define el _p[10]
+#define el_columnindex 10
+#define inap _p[11]
+#define inap_columnindex 11
+#define ina _p[12]
+#define ina_columnindex 12
+#define ik _p[13]
+#define ik_columnindex 13
+#define il _p[14]
+#define il_columnindex 14
+#define ek _p[15]
+#define ek_columnindex 15
+#define mp_inf _p[16]
+#define mp_inf_columnindex 16
+#define m_inf _p[17]
+#define m_inf_columnindex 17
+#define h_inf _p[18]
+#define h_inf_columnindex 18
+#define s_inf _p[19]
+#define s_inf_columnindex 19
+#define tau_mp _p[20]
+#define tau_mp_columnindex 20
+#define tau_m _p[21]
+#define tau_m_columnindex 21
+#define tau_h _p[22]
+#define tau_h_columnindex 22
+#define tau_s _p[23]
+#define tau_s_columnindex 23
+#define mp _p[24]
+#define mp_columnindex 24
+#define m _p[25]
+#define m_columnindex 25
+#define h _p[26]
+#define h_columnindex 26
+#define s _p[27]
+#define s_columnindex 27
+#define ko _p[28]
+#define ko_columnindex 28
+#define Dmp _p[29]
+#define Dmp_columnindex 29
+#define Dm _p[30]
+#define Dm_columnindex 30
+#define Dh _p[31]
+#define Dh_columnindex 31
+#define Ds _p[32]
+#define Ds_columnindex 32
+#define Dko _p[33]
+#define Dko_columnindex 33
+#define q10_1 _p[34]
+#define q10_1_columnindex 34
+#define q10_2 _p[35]
+#define q10_2_columnindex 35
+#define q10_3 _p[36]
+#define q10_3_columnindex 36
+#define v _p[37]
+#define v_columnindex 37
+#define _g _p[38]
+#define _g_columnindex 38
  
 #if MAC
 #if !defined(v)
@@ -129,6 +144,7 @@ extern "C" {
  extern double celsius;
  /* declaration of user functions */
  static void _hoc_Exp(void);
+ static void _hoc_calc_ek(void);
  static void _hoc_evaluate_fct(void);
  static void _hoc_vtrap(void);
  static void _hoc_vtrap0(void);
@@ -167,6 +183,7 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  static VoidFunc hoc_intfunc[] = {
  "setdata_newaxnode", _hoc_setdata,
  "Exp_newaxnode", _hoc_Exp,
+ "calc_ek_newaxnode", _hoc_calc_ek,
  "evaluate_fct_newaxnode", _hoc_evaluate_fct,
  "vtrap_newaxnode", _hoc_vtrap,
  "vtrap0_newaxnode", _hoc_vtrap0,
@@ -252,12 +269,13 @@ extern void hoc_reg_nmodl_filename(int, const char*);
  "gkbar_newaxnode", "mho/cm2",
  "gl_newaxnode", "mho/cm2",
  "ena_newaxnode", "mV",
- "ek_newaxnode", "mV",
+ "tau_clear_newaxnode", "ms",
  "el_newaxnode", "mV",
  "inap_newaxnode", "mA/cm2",
  "ina_newaxnode", "mA/cm2",
  "ik_newaxnode", "mA/cm2",
  "il_newaxnode", "mA/cm2",
+ "ek_newaxnode", "mV",
  0,0
 };
  static double delta_t = 1;
@@ -319,13 +337,18 @@ static void _ode_matsol(NrnThread*, _Memb_list*, int);
  "gkbar_newaxnode",
  "gl_newaxnode",
  "ena_newaxnode",
- "ek_newaxnode",
+ "ko0_newaxnode",
+ "ki_newaxnode",
+ "tau_clear_newaxnode",
+ "cleft_um_newaxnode",
+ "beta_newaxnode",
  "el_newaxnode",
  0,
  "inap_newaxnode",
  "ina_newaxnode",
  "ik_newaxnode",
  "il_newaxnode",
+ "ek_newaxnode",
  "mp_inf_newaxnode",
  "m_inf_newaxnode",
  "h_inf_newaxnode",
@@ -339,6 +362,7 @@ static void _ode_matsol(NrnThread*, _Memb_list*, int);
  "m_newaxnode",
  "h_newaxnode",
  "s_newaxnode",
+ "ko_newaxnode",
  0,
  0};
  
@@ -347,17 +371,21 @@ extern Prop* need_memb(Symbol*);
 static void nrn_alloc(Prop* _prop) {
 	Prop *prop_ion;
 	double *_p; Datum *_ppvar;
- 	_p = nrn_prop_data_alloc(_mechtype, 32, _prop);
+ 	_p = nrn_prop_data_alloc(_mechtype, 39, _prop);
  	/*initialize range parameters*/
  	gnapbar = 0.01;
  	gnabar = 3;
  	gkbar = 0.08;
  	gl = 0.007;
  	ena = 50;
- 	ek = -90;
+ 	ko0 = 3.5;
+ 	ki = 140;
+ 	tau_clear = 40;
+ 	cleft_um = 0.002;
+ 	beta = 500;
  	el = -90;
  	_prop->param = _p;
- 	_prop->param_size = 32;
+ 	_prop->param_size = 39;
  	_ppvar = nrn_prop_datum_alloc(_mechtype, 1, _prop);
  	_prop->dparam = _ppvar;
  	/*connect ionic variables to this model*/
@@ -385,7 +413,7 @@ extern void _cvode_abstol( Symbol**, double*, int);
   hoc_reg_nmodl_text(_mechtype, nmodl_file_text);
   hoc_reg_nmodl_filename(_mechtype, nmodl_filename);
 #endif
-  hoc_register_prop_size(_mechtype, 32, 1);
+  hoc_register_prop_size(_mechtype, 39, 1);
   hoc_register_dparam_semantics(_mechtype, 0, "cvodeieq");
  	hoc_register_cvode(_mechtype, _ode_count, _ode_map, _ode_spec, _ode_matsol);
  	hoc_register_tolerance(_mechtype, _hoc_state_tol, &_atollist);
@@ -401,16 +429,22 @@ static int error;
 static int _ninits = 0;
 static int _match_recurse=1;
 static void _modl_cleanup(){ _match_recurse=1;}
+static int calc_ek(_threadargsproto_);
 static int evaluate_fct(_threadargsprotocomma_ double);
  
 static int _ode_spec1(_threadargsproto_);
 /*static int _ode_matsol1(_threadargsproto_);*/
- static int _slist1[4], _dlist1[4];
+ static int _slist1[5], _dlist1[5];
  static int states(_threadargsproto_);
  
 /*CVODE*/
  static int _ode_spec1 (double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt) {int _reset = 0; {
-   evaluate_fct ( _threadargscomma_ v ) ;
+   double _lik_local , _lcleft_cm ;
+ evaluate_fct ( _threadargscomma_ v ) ;
+   calc_ek ( _threadargs_ ) ;
+   _lcleft_cm = cleft_um * 1e-4 ;
+   _lik_local = gkbar * s * ( v - ek ) ;
+   Dko = ( _lik_local / ( 96485.0 * _lcleft_cm * beta ) ) + ( ko0 - ko ) / tau_clear ;
    Dmp = ( mp_inf - mp ) / tau_mp ;
    Dm = ( m_inf - m ) / tau_m ;
    Dh = ( h_inf - h ) / tau_h ;
@@ -419,7 +453,12 @@ static int _ode_spec1(_threadargsproto_);
  return _reset;
 }
  static int _ode_matsol1 (double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt) {
+ double _lik_local , _lcleft_cm ;
  evaluate_fct ( _threadargscomma_ v ) ;
+ calc_ek ( _threadargs_ ) ;
+ _lcleft_cm = cleft_um * 1e-4 ;
+ _lik_local = gkbar * s * ( v - ek ) ;
+ Dko = Dko  / (1. - dt*( ( ( ( - 1.0 ) ) ) / tau_clear )) ;
  Dmp = Dmp  / (1. - dt*( ( ( ( - 1.0 ) ) ) / tau_mp )) ;
  Dm = Dm  / (1. - dt*( ( ( ( - 1.0 ) ) ) / tau_m )) ;
  Dh = Dh  / (1. - dt*( ( ( ( - 1.0 ) ) ) / tau_h )) ;
@@ -428,7 +467,12 @@ static int _ode_spec1(_threadargsproto_);
 }
  /*END CVODE*/
  static int states (double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt) { {
-   evaluate_fct ( _threadargscomma_ v ) ;
+   double _lik_local , _lcleft_cm ;
+ evaluate_fct ( _threadargscomma_ v ) ;
+   calc_ek ( _threadargs_ ) ;
+   _lcleft_cm = cleft_um * 1e-4 ;
+   _lik_local = gkbar * s * ( v - ek ) ;
+    ko = ko + (1. - exp(dt*(( ( ( - 1.0 ) ) ) / tau_clear)))*(- ( ( ( _lik_local ) / ( 96485.0 * _lcleft_cm * beta ) ) + ( ( ko0 ) ) / tau_clear ) / ( ( ( ( - 1.0 ) ) ) / tau_clear ) - ko) ;
     mp = mp + (1. - exp(dt*(( ( ( - 1.0 ) ) ) / tau_mp)))*(- ( ( ( mp_inf ) ) / tau_mp ) / ( ( ( ( - 1.0 ) ) ) / tau_mp ) - mp) ;
     m = m + (1. - exp(dt*(( ( ( - 1.0 ) ) ) / tau_m)))*(- ( ( ( m_inf ) ) / tau_m ) / ( ( ( ( - 1.0 ) ) ) / tau_m ) - m) ;
     h = h + (1. - exp(dt*(( ( ( - 1.0 ) ) ) / tau_h)))*(- ( ( ( h_inf ) ) / tau_h ) / ( ( ( ( - 1.0 ) ) ) / tau_h ) - h) ;
@@ -465,6 +509,24 @@ static void _hoc_evaluate_fct(void) {
   _nt = nrn_threads;
  _r = 1.;
  evaluate_fct ( _p, _ppvar, _thread, _nt, *getarg(1) );
+ hoc_retpushx(_r);
+}
+ 
+static int  calc_ek ( _threadargsproto_ ) {
+   if ( ko < 0.1 ) {
+     ko = 0.1 ;
+     }
+   ek = ( 1000.0 * 8.314 * ( 273.15 + celsius ) / 96485.0 ) * log ( ko / ki ) ;
+    return 0; }
+ 
+static void _hoc_calc_ek(void) {
+  double _r;
+   double* _p; Datum* _ppvar; Datum* _thread; NrnThread* _nt;
+   if (_extcall_prop) {_p = _extcall_prop->param; _ppvar = _extcall_prop->dparam;}else{ _p = (double*)0; _ppvar = (Datum*)0; }
+  _thread = _extcall_thread;
+  _nt = nrn_threads;
+ _r = 1.;
+ calc_ek ( _p, _ppvar, _thread, _nt );
  hoc_retpushx(_r);
 }
  
@@ -644,7 +706,7 @@ static void _hoc_Exp(void) {
  hoc_retpushx(_r);
 }
  
-static int _ode_count(int _type){ return 4;}
+static int _ode_count(int _type){ return 5;}
  
 static void _ode_spec(NrnThread* _nt, _Memb_list* _ml, int _type) {
    double* _p; Datum* _ppvar; Datum* _thread;
@@ -662,7 +724,7 @@ static void _ode_map(int _ieq, double** _pv, double** _pvdot, double* _pp, Datum
 	double* _p; Datum* _ppvar;
  	int _i; _p = _pp; _ppvar = _ppd;
 	_cvode_ieq = _ieq;
-	for (_i=0; _i < 4; ++_i) {
+	for (_i=0; _i < 5; ++_i) {
 		_pv[_i] = _pp + _slist1[_i];  _pvdot[_i] = _pp + _dlist1[_i];
 		_cvode_abstol(_atollist, _atol, _i);
 	}
@@ -687,6 +749,7 @@ static void _ode_matsol(NrnThread* _nt, _Memb_list* _ml, int _type) {
 static void initmodel(double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt) {
   int _i; double _save;{
   h = h0;
+  ko = ko0;
   m = m0;
   mp = mp0;
   s = s0;
@@ -699,6 +762,8 @@ static void initmodel(double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt)
    m = m_inf ;
    h = h_inf ;
    s = s_inf ;
+   ko = ko0 ;
+   calc_ek ( _threadargs_ ) ;
    }
  
 }
@@ -729,6 +794,7 @@ for (_iml = 0; _iml < _cntml; ++_iml) {
 }
 
 static double _nrn_current(double* _p, Datum* _ppvar, Datum* _thread, NrnThread* _nt, double _v){double _current=0.;v=_v;{ {
+   calc_ek ( _threadargs_ ) ;
    inap = gnapbar * mp * mp * mp * ( v - ena ) ;
    ina = gnabar * m * m * m * h * ( v - ena ) ;
    ik = gkbar * s * ( v - ek ) ;
@@ -835,10 +901,11 @@ static void _initlists(){
  double _x; double* _p = &_x;
  int _i; static int _first = 1;
   if (!_first) return;
- _slist1[0] = mp_columnindex;  _dlist1[0] = Dmp_columnindex;
- _slist1[1] = m_columnindex;  _dlist1[1] = Dm_columnindex;
- _slist1[2] = h_columnindex;  _dlist1[2] = Dh_columnindex;
- _slist1[3] = s_columnindex;  _dlist1[3] = Ds_columnindex;
+ _slist1[0] = ko_columnindex;  _dlist1[0] = Dko_columnindex;
+ _slist1[1] = mp_columnindex;  _dlist1[1] = Dmp_columnindex;
+ _slist1[2] = m_columnindex;  _dlist1[2] = Dm_columnindex;
+ _slist1[3] = h_columnindex;  _dlist1[3] = Dh_columnindex;
+ _slist1[4] = s_columnindex;  _dlist1[4] = Ds_columnindex;
 _first = 0;
 }
 
@@ -867,15 +934,19 @@ static const char* nmodl_file_text =
   "INDEPENDENT {t FROM 0 TO 1 WITH 1 (ms)}\n"
   "\n"
   "NEURON {\n"
-  "	SUFFIX newaxnode\n"
-  "	NONSPECIFIC_CURRENT ina\n"
-  "	NONSPECIFIC_CURRENT inap\n"
-  "	NONSPECIFIC_CURRENT ik\n"
-  "	NONSPECIFIC_CURRENT il\n"
-  "	RANGE gnapbar, gnabar, gkbar, gl, ena, ek, el\n"
-  "	RANGE mp_inf, m_inf, h_inf, s_inf\n"
-  "	RANGE tau_mp, tau_m, tau_h, tau_s\n"
+  "    SUFFIX newaxnode\n"
+  "    NONSPECIFIC_CURRENT ina\n"
+  "    NONSPECIFIC_CURRENT inap\n"
+  "    NONSPECIFIC_CURRENT ik\n"
+  "    NONSPECIFIC_CURRENT il\n"
+  "\n"
+  "    RANGE gnapbar, gnabar, gkbar, gl, ena, ek, el\n"
+  "    RANGE mp_inf, m_inf, h_inf, s_inf\n"
+  "    RANGE tau_mp, tau_m, tau_h, tau_s\n"
+  "\n"
+  "    RANGE ko, ko0, ki, tau_clear, cleft_um, beta\n"
   "}\n"
+  "\n"
   "\n"
   "\n"
   "UNITS {\n"
@@ -890,7 +961,12 @@ static const char* nmodl_file_text =
   "	gkbar   = 0.08 	(mho/cm2)\n"
   "	gl	= 0.007 (mho/cm2)\n"
   "	ena     = 50.0  (mV)\n"
-  "	ek      = -90.0 (mV)\n"
+  "    ko0 = 3.5\n"
+  "    ki  = 140\n"
+  "    tau_clear = 40 (ms)\n"
+  "    cleft_um  = 0.002\n"
+  "    beta      = 500\n"
+  "\n"
   "	el	= -90.0 (mV)\n"
   "	celsius		(degC)\n"
   "	dt              (ms)\n"
@@ -921,43 +997,56 @@ static const char* nmodl_file_text =
   "	bsC = 1\n"
   "}\n"
   "\n"
-  "STATE {\n"
-  "	mp m h s\n"
-  "}\n"
+  "STATE { mp m h s ko }\n"
+  "\n"
   "\n"
   "ASSIGNED {\n"
-  "	inap    (mA/cm2)\n"
-  "	ina	(mA/cm2)\n"
-  "	ik      (mA/cm2)\n"
-  "	il      (mA/cm2)\n"
-  "	mp_inf\n"
-  "	m_inf\n"
-  "	h_inf\n"
-  "	s_inf\n"
-  "	tau_mp\n"
-  "	tau_m\n"
-  "	tau_h\n"
-  "	tau_s\n"
-  "	q10_1\n"
-  "	q10_2\n"
-  "	q10_3\n"
+  "    inap (mA/cm2)\n"
+  "    ina  (mA/cm2)\n"
+  "    ik   (mA/cm2)\n"
+  "    il   (mA/cm2)\n"
+  "    ek   (mV)\n"
+  "    mp_inf\n"
+  "    m_inf\n"
+  "    h_inf\n"
+  "    s_inf\n"
+  "    tau_mp\n"
+  "    tau_m\n"
+  "    tau_h\n"
+  "    tau_s\n"
+  "    q10_1\n"
+  "    q10_2\n"
+  "    q10_3\n"
   "}\n"
+  "\n"
   "\n"
   "BREAKPOINT {\n"
-  "	SOLVE states METHOD cnexp\n"
-  "	inap = gnapbar * mp*mp*mp * (v - ena)\n"
-  "	ina = gnabar * m*m*m*h * (v - ena)\n"
-  "	ik   = gkbar * s * (v - ek)\n"
-  "	il   = gl * (v - el)\n"
+  "    SOLVE states METHOD cnexp\n"
+  "    calc_ek()\n"
+  "    inap = gnapbar * mp*mp*mp * (v - ena)\n"
+  "    ina  = gnabar  * m*m*m*h  * (v - ena)\n"
+  "    ik   = gkbar   * s        * (v - ek)\n"
+  "    il   = gl * (v - el)\n"
   "}\n"
   "\n"
+  "\n"
   "DERIVATIVE states {   : exact Hodgkin-Huxley equations\n"
-  "       evaluate_fct(v)\n"
-  "	mp'= (mp_inf - mp) / tau_mp\n"
-  "	m' = (m_inf - m) / tau_m\n"
-  "	h' = (h_inf - h) / tau_h\n"
-  "	s' = (s_inf - s) / tau_s\n"
+  "    LOCAL ik_local, cleft_cm\n"
+  "\n"
+  "    evaluate_fct(v)\n"
+  "    calc_ek()\n"
+  "\n"
+  "    cleft_cm = cleft_um * 1e-4\n"
+  "    ik_local = gkbar * s * (v - ek)\n"
+  "\n"
+  "    ko' = (ik_local / (96485.0 * cleft_cm * beta)) + (ko0 - ko) / tau_clear\n"
+  "\n"
+  "    mp' = (mp_inf - mp) / tau_mp\n"
+  "    m'  = (m_inf  - m ) / tau_m\n"
+  "    h'  = (h_inf  - h ) / tau_h\n"
+  "    s'  = (s_inf  - s ) / tau_s\n"
   "}\n"
+  "\n"
   "\n"
   "UNITSOFF\n"
   "\n"
@@ -975,6 +1064,9 @@ static const char* nmodl_file_text =
   "	m = m_inf\n"
   "	h = h_inf\n"
   "	s = s_inf\n"
+  "    ko = ko0\n"
+  "    calc_ek()\n"
+  "\n"
   "}\n"
   "\n"
   "PROCEDURE evaluate_fct(v(mV)) { LOCAL a,b,v2\n"
@@ -999,6 +1091,12 @@ static const char* nmodl_file_text =
   "	tau_s = 1 / (a + b)\n"
   "	s_inf = a / (a + b)\n"
   "}\n"
+  "\n"
+  "PROCEDURE calc_ek() {\n"
+  "    if (ko < 0.1) { ko = 0.1 }\n"
+  "    ek = (1000.0 * 8.314 * (273.15 + celsius) / 96485.0) * log(ko/ki)\n"
+  "}\n"
+  "\n"
   "\n"
   "FUNCTION vtrap0(x) {\n"
   "	if (fabs((x+asB)/asC) < 1e-6) {\n"

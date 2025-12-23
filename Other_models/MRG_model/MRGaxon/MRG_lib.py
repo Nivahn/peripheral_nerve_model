@@ -230,6 +230,12 @@ class MRGaxon:
             s.el_newaxnode      = -90.0 if el is None else el
             s.gnabar_newaxnode  = 3.0   if gnabar  is None else gnabar
             s.gnapbar_newaxnode = gnapbar * self.gnapbar_scale if gnapbar is None else gnapbar
+
+            s.ko0_newaxnode = 3.5  # mM
+            s.ki_newaxnode = 140.0  # mM
+            s.tau_clear_newaxnode = 30.0  # ms (поиграй: 10..200)
+            s.cleft_um_newaxnode = self.space_p1  # 0.002 um у тебя
+            s.beta_newaxnode = 500.0  # 100..5000 (больше = меньше накопление)
         self._set_extracellular(s, Rpn0, 1e10, 0.0)
         self.regions["node"].append(s)
         return s
