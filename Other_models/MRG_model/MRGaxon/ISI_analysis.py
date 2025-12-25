@@ -55,10 +55,12 @@ def analyze_single_point(freq, current_frequency, branch_point, time_trace, trac
 
     return bp_trace, bp_isi, bp_times, bp_peaks
 
-filepath = r"C:\Users\User\PycharmProjects\peripheral_nerve_model\Data\MRG_MultiFreq_Stim_50_1000Hz_amp_1.h5"
+
+
+filepath = r"C:\Users\User\PycharmProjects\peripheral_nerve_model\Data\MRG_MultiFreq_Stim_50_1000Hz_new_amp_10.h5"
 
 # Создаем папку для сохранения графиков
-output_dir = "./../../../Data/analysis_plots/1_nA/test2"
+output_dir = "./../../../Data/analysis_plots/new/10_nA/test"
 os.makedirs(output_dir, exist_ok=True)
 
 with h5py.File(filepath,'r') as f:
@@ -79,10 +81,10 @@ with h5py.File(filepath,'r') as f:
         current_frequency = f[f"{freq}/Model/Traces"]
 
         # --- окно анализа (как у тебя), но вынесем, чтобы использовать для подсчётов ---
-        if time_trace[-1] >= 2000:
-            start_idx = np.where(time_trace >= 2000)[0][0]
-            if time_trace[-1] >= 2500:
-                end_idx = np.where(time_trace <= 2100)[0][-1]  # у тебя так было
+        if time_trace[-1] >= 0:
+            start_idx = np.where(time_trace >= 0)[0][0]
+            if time_trace[-1] >= 5000:
+                end_idx = np.where(time_trace <= 5000)[0][-1]  # у тебя так было
             else:
                 end_idx = len(time_trace) - 1
         else:
@@ -172,9 +174,9 @@ with h5py.File(filepath,'r') as f:
             })
 
             if time_trace[-1] >= 2000:
-                start_idx = np.where(time_trace >= 2000)[0][0]
+                start_idx = np.where(time_trace >= 100)[0][0]
                 if time_trace[-1] >= 2500:
-                    end_idx = np.where(time_trace <= 2100)[0][-1]
+                    end_idx = np.where(time_trace <= 1000)[0][-1]
                 else:
                     end_idx = len(time_trace) - 1
             else:
@@ -207,7 +209,7 @@ with h5py.File(filepath,'r') as f:
 
             if len(bb_peaks_segment) > 0:
                 ax.scatter(time_trace[bb_peaks_segment], bb_trace[bb_peaks_segment],
-                          s=80, color='black', zorder=5, label='Пики')
+                          s=20, color='black', zorder=5, label='spike')
 
             ax.set_xlabel("Время (мс)")
             ax.set_ylabel("Потенциал (мВ)")

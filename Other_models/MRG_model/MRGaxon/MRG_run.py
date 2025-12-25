@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.signal import find_peaks
 from MRG_lib import *
 
-'''
+
 import h5py
 from MRG_lib import *
 from tqdm import tqdm
@@ -23,10 +23,10 @@ t0 = time.perf_counter()
 frequencies = list(range(50, 1001, 50))   # 50,150,...,950,1000 Гц
 #frequencies = [50, 1000]
 #amp_nA = -1.0                               # амплитуда импульса
-amplitudes = [0.5, 1, 2]
+amplitudes = [0.5, 1, 2, 5, 8, 10]
 v_init = -80.0
-t_stop_ms = 5010.0                         # после стимуляции ещё хвост
-t_start_ms=10.0
+t_stop_ms = 5100.0                         # после стимуляции ещё хвост
+t_start_ms=100.0
 phase_us=40.0
 gap_us=5.0
 dt=0.005
@@ -55,7 +55,7 @@ for amp_nA in tqdm(amplitudes, desc="Amplitudes"):
     # --------------------------
     # Создаём выходной HDF5
     # --------------------------
-    h5_path = f"./../../../Data/MRG_MultiFreq_Stim_50_1000Hz_amp_{amp_nA}.h5"
+    h5_path = f"./../../../Data/MRG_MultiFreq_Stim_50_1000Hz_new_amp_{amp_nA}.h5"
 
     f = h5py.File(h5_path, "w")
 
@@ -82,7 +82,7 @@ for amp_nA in tqdm(amplitudes, desc="Amplitudes"):
     # Основной цикл по частотам
     # --------------------------
 
-    for freq in tqdm(frequencies, desc="Frequencies"):
+    for freq in frequencies:
         freq_0 = time.perf_counter()
         print(f"\n=== Частота {freq} Гц ===")
 
@@ -104,25 +104,7 @@ for amp_nA in tqdm(amplitudes, desc="Amplitudes"):
             h5_path=h5_path,
             experiment_name=group_name)
 
-        plot_start = int(10 // dt)
-        plot_end = int(1000 // dt)
 
-        axon.plot_voltage_traces(plot_start=plot_start, plot_end=plot_end)
-
-        plot_start = int(10 // dt)
-        plot_end = int(100 // dt)
-
-        axon.plot_voltage_traces(plot_start=plot_start, plot_end=plot_end)
-
-        plot_start = int(10 // dt)
-        plot_end = int(30 // dt)
-
-        axon.plot_voltage_traces(plot_start=plot_start, plot_end=plot_end)
-
-        plot_start = int(50 // dt)
-        plot_end = int(100 // dt)
-
-        axon.plot_voltage_traces(plot_start=plot_start, plot_end=plot_end)
         dt = time.perf_counter() - freq_0
         print(f"  freq={freq} Hz done in {dt:.2f} s")
 
@@ -134,7 +116,7 @@ for amp_nA in tqdm(amplitudes, desc="Amplitudes"):
     print(f"  amp={amp_nA} Hz done in {dt:.2f} s")
 
 print(f"[TIMER] total experiment time = {time.perf_counter() - t0:.1f} s")
-'''
+
 '''
 
 
