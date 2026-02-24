@@ -1,0 +1,194 @@
+{load_file("nrngui.hoc")}
+objectvar save_window_, rvp_
+objectvar scene_vector_[12]
+objectvar ocbox_, ocbox_list_, scene_, scene_list_
+{ocbox_list_ = new List()  scene_list_ = new List()}
+
+//Begin I/V Clamp Electrode
+{
+load_file("electrod.hoc")
+}
+{
+ocbox_=new Electrode(0)
+execute("can_locate=1 sec=\"node[0]\" xloc=0.5 locate(0)", ocbox_)
+execute("vc.dur[0]=1 vc.amp[0]=-80", ocbox_)
+execute("vc.dur[1]=0.02 vc.amp[1]=0", ocbox_)
+execute("vc.dur[2]=0 vc.amp[2]=-65", ocbox_)
+execute("stim.del=0.1 stim.dur=0.1 stim.amp=0", ocbox_)
+execute("vcsteps=5", ocbox_)
+execute("samp=stim.amp  store_vclamp() glyph()", ocbox_)
+ocbox_ = ocbox_.v1
+ocbox_.map("I/V Clamp Electrode", 100, 249, 222.3, 364.5)
+}
+objref ocbox_
+//End I/V Clamp Electrode
+
+{
+xpanel("RunControl", 0)
+v_init = -80
+xvalue("Init","v_init", 1,"stdinit()", 1, 1 )
+xbutton("Init & Run","run()")
+xbutton("Stop","stoprun=1")
+runStopAt = 5
+xvalue("Continue til","runStopAt", 1,"{continuerun(runStopAt) stoprun=1}", 1, 1 )
+runStopIn = 1
+xvalue("Continue for","runStopIn", 1,"{continuerun(t + runStopIn) stoprun=1}", 1, 1 )
+xbutton("Single Step","steprun()")
+t = 0
+xvalue("t","t", 2 )
+tstop = 6
+xvalue("Tstop","tstop", 1,"tstop_changed()", 0, 1 )
+dt = 0.005
+xvalue("dt","dt", 1,"setdt()", 0, 1 )
+steps_per_ms = 200
+xvalue("Points plotted/ms","steps_per_ms", 1,"setdt()", 0, 1 )
+screen_update_invl = 0.05
+xvalue("Scrn update invl","screen_update_invl", 1,"", 0, 1 )
+realtime = 0
+xvalue("Real Time","realtime", 0,"", 0, 1 )
+xpanel(398,249)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-0.1,6,-36,2)
+scene_vector_[3] = save_window_
+{save_window_.view(-0.1, -36, 6.1, 38, 978, 484, 750.6, 339.4)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addvar("node[0].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[1].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[2].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[3].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[4].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[5].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[6].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[7].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[8].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[9].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[10].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[11].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[12].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[13].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[14].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[15].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[16].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[17].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[18].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[19].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[20].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[21].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[22].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[23].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[24].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[25].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[26].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[27].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[28].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[29].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[30].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[31].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[32].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[33].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[34].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[35].i_membrane( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-5.96046e-08,6,-80,40)
+scene_vector_[4] = save_window_
+{save_window_.view(-5.96046e-08, -80, 6, 120, 279, 448, 711.9, 319.6)}
+graphList[0].append(save_window_)
+save_window_.save_name("graphList[0].")
+save_window_.addexpr("node[0].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addvar("node[1].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[2].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[3].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[4].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[5].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[6].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[7].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[8].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[9].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[10].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[11].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[12].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[13].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[14].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[15].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[16].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[17].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[18].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[19].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[20].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[21].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[22].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[23].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[24].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[25].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[26].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[27].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[28].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[29].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[30].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[31].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[32].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[33].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[34].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+save_window_.addexpr("node[35].v( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-5.96046e-08,6,-1.9e-08,8e-09)
+scene_vector_[5] = save_window_
+{save_window_.view(-5.96046e-08, -1.9e-08, 6, 2.7e-08, 1186, 598, 487.8, 292.6)}
+graphList[0].append(save_window_)
+save_window_.save_name("graphList[0].")
+save_window_.addexpr("node[15].vext[1]( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-0.1,6,-0.6,5)
+scene_vector_[6] = save_window_
+{save_window_.view(-0.1, -0.6, 6.1, 5.6, 716, 112, 448.2, 292.6)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addexpr("node[15].i_cap( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-0.1,6,-50,0)
+scene_vector_[7] = save_window_
+{save_window_.view(-0.1, -50, 6.1, 50, 686, 619, 495, 252.1)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addexpr("node[15].ina_axnode( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-5.96046e-08,6,-1,1)
+scene_vector_[8] = save_window_
+{save_window_.view(-5.96046e-08, -1, 6, 2, 1328, 94, 449.1, 280)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addexpr("node[15].ik_axnode( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-5.96046e-08,6,-1,1)
+scene_vector_[9] = save_window_
+{save_window_.view(-5.96046e-08, -1, 6, 2, 1398, 616, 414.9, 200.8)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addexpr("node[15].inap_axnode( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+{
+save_window_ = new Graph(0)
+save_window_.size(-5.96046e-08,6,-1,1)
+scene_vector_[10] = save_window_
+{save_window_.view(-5.96046e-08, -1, 6, 2, 91, 672, 424.8, 235)}
+graphList[1].append(save_window_)
+save_window_.save_name("graphList[1].")
+save_window_.addexpr("node[15].il_axnode( 0.5 )", 1, 1, 0.8, 0.9, 2)
+}
+objectvar scene_vector_[1]
+{doNotify()}

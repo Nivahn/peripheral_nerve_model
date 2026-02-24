@@ -1,0 +1,74 @@
+/*--------------------------------------------------------------------
+Boundary condition 
+Written by Nooshin Abdollahi (Dec 9, 2021)
+----------------------------------------------------------------------*/
+
+xopen("fixnseg.hoc") 
+
+proc model_globels() {			
+	celsius=37			
+	v_init=-80 //mV//  		        	
+        }
+
+
+model_globels ()
+
+
+Total_Length=40000
+number =  4000   
+Section_Length=Total_Length/number
+ 
+
+
+
+create section[number]    
+create soma
+
+proc initialize(){
+
+
+
+for i=0,number-1 {
+ 
+section[i] {
+							
+     nseg=1
+     diam=0.01
+     L=Section_Length
+     Ra=1e9
+     cm=1e-9	        			
+     insert extracellular 
+	}
+}		
+
+// soma section is added because of the error in Netpyne about LFP recording
+
+soma {
+     nseg=1
+     diam=0.01
+     L=0.01
+     Ra=1e9
+     cm=1e-9	
+     insert extracellular 
+}
+
+
+for i=0, number-2 {
+connect section[i+1](0), section[i](1)	
+}
+
+
+connect soma(0), section[number-1](1)
+
+
+	
+}
+
+
+
+
+initialize()
+
+
+
+
