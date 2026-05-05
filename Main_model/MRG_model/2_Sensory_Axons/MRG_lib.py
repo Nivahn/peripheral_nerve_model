@@ -1,4 +1,4 @@
-from neuron import h
+
 import matplotlib.pyplot as plt
 import numpy as np
 import math
@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from neuron_loader import load_neuron_h
+
+h = load_neuron_h()
 
 # ==================================================================================================
 # ДОБАВЛЕНО (2026-03): Явная загрузка механизмов NEURON (nrnmech.dll) из текущей папки модели.

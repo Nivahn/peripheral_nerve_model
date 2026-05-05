@@ -1,7 +1,10 @@
 import pandas as pd
-from neuron import h
 import matplotlib.pyplot as plt
 import numpy as np
+
+from neuron_loader import load_neuron_h
+
+h = load_neuron_h()
 
 class STIMULATOR:
     """
