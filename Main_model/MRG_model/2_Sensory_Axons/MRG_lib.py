@@ -196,6 +196,7 @@ class MRGaxon:
              nodes_dist=10,
              branch_every_um=None,
              diam_scale=0.6,
+             branch_node_scale=1.0,
              main_after_branch_scale=None,
              daughter_branch_scale=None,
              main_after_branch_fiber_diameter=None,
@@ -231,6 +232,7 @@ class MRGaxon:
         self.branches_num = branches_num
         self.nodes_dist = nodes_dist
         self.diam_scale = diam_scale
+        self.branch_node_scale = float(branch_node_scale)
 
         # Отдельные масштабы main и daughter лучше отражают, что после branch point
         # главный путь и дочерняя ветвь не обязаны иметь одинаковую геометрию.
@@ -244,6 +246,8 @@ class MRGaxon:
         )
         self.main_transition_nodes = max(0, int(main_transition_nodes))
         self.daughter_transition_nodes = max(0, int(daughter_transition_nodes))
+        # Connector-параметры оставлены только для обратной совместимости сигнатуры.
+        # В текущей branch_node topology отдельный connector больше не участвует.
         self.branch_connector_length_um = float(branch_connector_length_um)
         self.branch_connector_diam_scale = float(branch_connector_diam_scale)
 
@@ -356,6 +360,7 @@ class MRGaxon:
             target_fiber_diameter=self.daughter_branch_fiber_diameter,
             fallback_scale=self.daughter_branch_scale,
         )
+        self.branch_node_params = self._build_scaled_target_params(self.branch_node_scale)
 
         self.print_all_parameters()
         # Построение аксона
@@ -388,9 +393,13 @@ class MRGaxon:
         raise RuntimeError("Не найден ни 'newaxnode', ни 'axnode' — скомпилируйте .mod файлы.")
 
     def _get_mrg_params(self, fiberD):
-        """Получает параметры MRG для заданного диаметра волокна."""
-        if 1.011 <= float(fiberD) < 5.7:
-            base = _small_mrg_params_from_ascent(float(fiberD))
+        """Получает полный набор MRG-параметров для заданного диаметра волокна."""
+        d = float(fiberD)
+        if d < 1.011 or d > 16.0:
+            raise ValueError(f"fiberD {fiberD} вне поддержанного диапазона 1.011..16.0 um")
+
+        if d < 5.7:
+            base = _small_mrg_params_from_ascent(d)
             base['rpn0'] = self._rin_peri(base['nodeD'], self.space_p1)
             base['rpn1'] = self._rin_peri(base['paraD1'], self.space_p1)
             base['rpn2'] = self._rin_peri(base['paraD2'], self.space_p2)
@@ -398,27 +407,49 @@ class MRGaxon:
             base['Lstep'] = float(base['delta_z'])
             return base
 
-        if fiberD not in MRG_TABLE:
-            raise ValueError(f"fiberD {fiberD} не в таблице.")
+        if d in MRG_TABLE:
+            return self._build_large_mrg_params_from_tuple(d, MRG_TABLE[d])
 
-        g, axon_d, node_d, para_d1, para_d2, deltax, paralength2, nl = MRG_TABLE[fiberD]
-        interlength = (deltax - self.nodelength - 2 * self.paralength1 - 2 * paralength2) / 6.0
+        diameters = sorted(float(x) for x in MRG_TABLE.keys())
+        lo = None
+        hi = None
+        for left, right in zip(diameters[:-1], diameters[1:]):
+            if left <= d <= right:
+                lo = left
+                hi = right
+                break
+        if lo is None or hi is None:
+            raise ValueError(f"fiberD {fiberD} не удалось интерполировать по MRG_TABLE")
 
+        frac = (d - lo) / (hi - lo)
+        lo_vals = MRG_TABLE[lo]
+        hi_vals = MRG_TABLE[hi]
+        interp_vals = []
+        for idx, (vlo, vhi) in enumerate(zip(lo_vals, hi_vals)):
+            val = float(vlo) + frac * (float(vhi) - float(vlo))
+            if idx == 7:
+                val = int(round(val))
+            interp_vals.append(val)
+        return self._build_large_mrg_params_from_tuple(d, tuple(interp_vals))
+
+    def _build_large_mrg_params_from_tuple(self, fiberD: float, values: tuple):
+        _, axon_d, node_d, para_d1, para_d2, deltax, paralength2, nl = values
+        interlength = (float(deltax) - self.nodelength - 2 * self.paralength1 - 2 * float(paralength2)) / 6.0
         return {
-            'fiberD': fiberD,
-            'axonD': axon_d,
-            'nodeD': node_d,
-            'paraD1': para_d1,
-            'paraD2': para_d2,
+            'fiberD': float(fiberD),
+            'axonD': float(axon_d),
+            'nodeD': float(node_d),
+            'paraD1': float(para_d1),
+            'paraD2': float(para_d2),
             'paral1': self.paralength1,
-            'paral2': paralength2,
-            'interL': interlength,
-            'nl': nl,
-            'rpn0': self._rin_peri(node_d, self.space_p1),
-            'rpn1': self._rin_peri(para_d1, self.space_p1),
-            'rpn2': self._rin_peri(para_d2, self.space_p2),
-            'rpx': self._rin_peri(axon_d, self.space_i),
-            'Lstep': 2 * self.paralength1 + 2 * paralength2 + 6 * interlength + self.nodelength
+            'paral2': float(paralength2),
+            'interL': float(interlength),
+            'nl': int(round(float(nl))),
+            'rpn0': self._rin_peri(float(node_d), self.space_p1),
+            'rpn1': self._rin_peri(float(para_d1), self.space_p1),
+            'rpn2': self._rin_peri(float(para_d2), self.space_p2),
+            'rpx': self._rin_peri(float(axon_d), self.space_i),
+            'Lstep': 2 * self.paralength1 + 2 * float(paralength2) + 6 * float(interlength) + self.nodelength,
         }
 
     def _rin_peri(self, inner_d_um, gap_um):
@@ -434,7 +465,13 @@ class MRGaxon:
         """
         if target_fiber_diameter is not None:
             return self._get_mrg_params(float(target_fiber_diameter))
-        return self.scaled_params(self.mrg_params, float(fallback_scale))
+        return self._build_scaled_target_params(float(fallback_scale))
+
+    def _build_scaled_target_params(self, scale: float):
+        # Scale трактуем как масштаб fiber diameter относительно материнского аксона.
+        # Затем получаем полный набор параметров для нового диаметра, а не просто умножаем diam.
+        target_fiber_diameter = float(self.fiber_diameter) * float(scale)
+        return self._get_mrg_params(target_fiber_diameter)
 
     def _params_for_branch_step(self, *, target_params: dict, transition_nodes: int, step_index_from_branch: int):
         """Простая branch transition zone.
@@ -493,22 +530,17 @@ class MRGaxon:
         return xr
 
     # ---------- КОНСТРУКТОРЫ СЕКЦИЙ ----------
-    def make_node(self, nodeD, nodel, Rpn0, gnabar=3.0, gnapbar=0.005, el=-90.0):
+    def _configure_node_section(self, sec, nodeD, nodel, Rpn0, gnabar=3.0, gnapbar=0.005, node_channel_overrides=None):
+        sec.nseg = 1
+        sec.L = nodel
+        sec.diam = nodeD
+        sec.Ra = self.rho_a / 10000.0
+        sec.cm = 2.0
 
-        s = h.Section(name=f'node_{self._node_id}')
-        self._node_id +=1
-        s.nseg = 1
-        s.L    = nodel
-        s.diam = nodeD
-        s.Ra   = self.rho_a/10000.0
-        s.cm   = 2.0
+        self._insert_mechanism(sec, self.node_mech)
 
-        self._insert_mechanism(s, self.node_mech)
-
-        # Для малых диаметров ASCENT рекомендует ослабить fast Na и усилить K,
-        # чтобы избежать множественных спайков на один стимул.
-        overrides = getattr(self, 'node_channel_overrides', {}) or {}
-        for seg in s:
+        overrides = dict(self.node_channel_overrides if node_channel_overrides is None else node_channel_overrides)
+        for seg in sec:
             if self.node_mech == 'newaxnode':
                 seg.gnabar_newaxnode = float(gnabar)
                 if 'gnabar' in overrides:
@@ -524,10 +556,34 @@ class MRGaxon:
                 if hasattr(seg, 'gkbar_axnode') and 'gkbar' in overrides:
                     seg.gkbar_axnode = float(overrides['gkbar'])
 
+        self._set_extracellular(sec, Rpn0, 1e10, 0.0)
 
-        self._set_extracellular(s, Rpn0, 1e10, 0.0)
+    def make_node(self, nodeD, nodel, Rpn0, gnabar=3.0, gnapbar=0.005, el=-90.0, node_channel_overrides=None):
+
+        s = h.Section(name=f'node_{self._node_id}')
+        self._node_id +=1
+        self._configure_node_section(
+            s,
+            nodeD,
+            nodel,
+            Rpn0,
+            gnabar=gnabar,
+            gnapbar=gnapbar,
+            node_channel_overrides=node_channel_overrides,
+        )
         self.regions["node"].append(s)
         return s
+
+    def rescale_existing_node(self, sec, params):
+        # Branch node уже существует как последняя нода parent-ствола.
+        # Если задан branch_node_scale, перенастраиваем именно эту секцию под новый diameter.
+        self._configure_node_section(
+            sec,
+            params['nodeD'],
+            self.nodelength,
+            params['rpn0'],
+            node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
+        )
 
     def make_branch_connector(self, diam_um: float, length_um: float):
         """Короткая пассивная секция в зоне bifurcation.
@@ -619,7 +675,12 @@ class MRGaxon:
         stin_sections = [self.make_stin(params['fiberD'], params['axonD'], params['interL'], params['nl'], params['rpx']) for _ in range(6)]
         flut1 = self.make_flut(params['fiberD'], params['paraD2'], params['paral2'], params['nl'], params['rpn2'])
         mysa1 = self.make_mysa(params['fiberD'], params['paraD1'], params['paral1'], params['nl'], params['rpn1'])
-        next_node   = self.make_node(params['nodeD'], self.nodelength, params['rpn0'])
+        next_node   = self.make_node(
+            params['nodeD'],
+            self.nodelength,
+            params['rpn0'],
+            node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
+        )
 
         # топология
         mysa0.connect(parent_node, 1.0, 0.0)
@@ -724,7 +785,14 @@ class MRGaxon:
 
     def build_chain(self, n_nodes, params, node_mech=None):
 
-        nodes = [self.make_node(params['nodeD'], self.nodelength, params['rpn0'])]
+        nodes = [
+            self.make_node(
+                params['nodeD'],
+                self.nodelength,
+                params['rpn0'],
+                node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
+            )
+        ]
         for _ in range(n_nodes-1):
             next_node = self.append_one_step(nodes[-1], params)
             nodes.append(next_node)
@@ -760,7 +828,14 @@ class MRGaxon:
         # Список ветвей (каждая ветвь = список нод). Нужен для корректного boundary coupling.
         self.branches = []
 
-        self.main_axon = [self.make_node(self.mrg_params['nodeD'], self.nodelength, self.mrg_params['rpn0'])]
+        self.main_axon = [
+            self.make_node(
+                self.mrg_params['nodeD'],
+                self.nodelength,
+                self.mrg_params['rpn0'],
+                node_channel_overrides=self.mrg_params.get('node_channel_overrides', self.node_channel_overrides),
+            )
+        ]
 
         self.node_distance_um = {}
         total_length_um = 0.0
@@ -853,6 +928,11 @@ class MRGaxon:
 
                 # Точка ветвления — текущая последняя нода главного аксона
                 branch_node = self.main_axon[-1]
+
+                # Branch node получает собственный scaled diameter, если branch_node_scale != 1.
+                # Масштаб применяется к fiber diameter материнского аксона, затем берётся
+                # полный набор параметров для этого нового диаметра.
+                self.rescale_existing_node(branch_node, self.branch_node_params)
 
                 branch_distance_um = self.node_distance_um.get(branch_node.name(), None)
                 if branch_distance_um is not None:
@@ -2269,6 +2349,7 @@ class MRGaxon:
         print(f"Количество ветвей: {self.branches_num}")
         print(f"Расстояние между ветвлениями: {self.nodes_dist} сегментов")
         print(f"Масштаб диаметра: {self.diam_scale}")
+        print(f"Branch-node scale: {self.branch_node_scale}")
         print(f"Main-after-branch scale: {self.main_after_branch_scale}")
         print(f"Daughter-branch scale: {self.daughter_branch_scale}")
         print(f"Main transition nodes: {self.main_transition_nodes}")
