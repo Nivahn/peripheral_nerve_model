@@ -1,12 +1,15 @@
 """run_branch_zone_test_ascent_diams.py
 
-Простой тест branch-zone модели на одном ветвящемся аксоне B.
+Простой тест branch-node модели на одном ветвящемся аксоне B.
 
-Конфигурация по запросу:
-  - parent branch diameter = 4.7 um
-  - main after-branch diameter = 5.7 um
-  - daughter branch diameter = 3.0 um
-  - frequencies = 50, 400, 450 Hz
+Конфигурация задаётся scale-параметрами относительно материнского аксона:
+  - branch node scale
+  - main after-branch scale
+  - daughter after-branch scale
+
+Первые 3 ноды после branch node используют full MRG/ASCENT параметры,
+полученные из `parent fiber diameter * scale`, затем ветви возвращаются к
+параметрам материнского аксона.
 
 Сохраняет графики Vm в точках:
   - before_branch
@@ -29,11 +32,17 @@ from scipy.signal import find_peaks
 from MRG_lib import MRGaxon
 
 
-FREQUENCIES_HZ = [50.0, 400.0, 450.0]
+#FREQUENCIES_HZ = [50.0, 100, 300, 350,  400.0, 450.0, 500, 550, 600, 650, 700,  750, 800, 850, 900, 950, 1000]
+FREQUENCIES_HZ = [400.0, 450.0, 500, 550, 900, 950, 1000]
 
 PARENT_FIBER_DIAM_UM = 5.7
-MAIN_AFTER_BRANCH_DIAM_UM = 4.7
-DAUGHTER_BRANCH_DIAM_UM = 3.0
+BRANCH_NODE_SCALE = 1.0
+MAIN_AFTER_BRANCH_SCALE = 0.6
+DAUGHTER_BRANCH_SCALE = 0.6
+
+BRANCH_NODE_FIBER_DIAM_UM = PARENT_FIBER_DIAM_UM * BRANCH_NODE_SCALE
+MAIN_AFTER_BRANCH_FIBER_DIAM_UM = PARENT_FIBER_DIAM_UM * MAIN_AFTER_BRANCH_SCALE
+DAUGHTER_BRANCH_FIBER_DIAM_UM = PARENT_FIBER_DIAM_UM * DAUGHTER_BRANCH_SCALE
 
 PARENT_AXON_NODES = 31
 BRANCH_NODES = 11
@@ -45,7 +54,7 @@ V_INIT_MV = -80.0
 T_START_MS = 10.0
 T_END_MS = 110.0
 T_STOP_MS = 120.0
-AMP_NA = 0.8
+AMP_NA = 5
 PHASE_US = 40.0
 GAP_US = 5.0
 
@@ -76,13 +85,11 @@ def run_one_frequency(freq_hz: float, out_dir: Path) -> dict:
         branch_nodes=BRANCH_NODES,
         branches_num=BRANCHES_NUM,
         nodes_dist=NODES_DIST,
-        diam_scale=0.6,
-        main_after_branch_fiber_diameter=MAIN_AFTER_BRANCH_DIAM_UM,
-        daughter_branch_fiber_diameter=DAUGHTER_BRANCH_DIAM_UM,
+        branch_node_scale=BRANCH_NODE_SCALE,
+        main_after_branch_scale=MAIN_AFTER_BRANCH_SCALE,
+        daughter_branch_scale=DAUGHTER_BRANCH_SCALE,
         main_transition_nodes=3,
         daughter_transition_nodes=3,
-        branch_connector_length_um=1.0,
-        branch_connector_diam_scale=1.0,
         celsius=37.0,
         dt_ms=DT_MS,
         v_init=V_INIT_MV,
@@ -112,7 +119,12 @@ def run_one_frequency(freq_hz: float, out_dir: Path) -> dict:
 
     fig, axes = plt.subplots(3, 1, figsize=(12.0, 9.0), dpi=180, sharex=True)
     fig.suptitle(
-        f"Branched axon test | parent {PARENT_FIBER_DIAM_UM} um | main {MAIN_AFTER_BRANCH_DIAM_UM} um | daughter {DAUGHTER_BRANCH_DIAM_UM} um | {int(freq_hz)} Hz",
+        "Branched axon test | "
+        f"parent {PARENT_FIBER_DIAM_UM:.2f} um | "
+        f"branch node {BRANCH_NODE_FIBER_DIAM_UM:.2f} um (x{BRANCH_NODE_SCALE:.3f}) | "
+        f"main {MAIN_AFTER_BRANCH_FIBER_DIAM_UM:.2f} um (x{MAIN_AFTER_BRANCH_SCALE:.3f}) | "
+        f"daughter {DAUGHTER_BRANCH_FIBER_DIAM_UM:.2f} um (x{DAUGHTER_BRANCH_SCALE:.3f}) | "
+        f"{int(freq_hz)} Hz",
         fontsize=13,
     )
 
@@ -162,4 +174,5 @@ def main():
     print(f"Saved summary: {csv_path}")
 
 
-main()
+if __name__ == "__main__":
+    main()
