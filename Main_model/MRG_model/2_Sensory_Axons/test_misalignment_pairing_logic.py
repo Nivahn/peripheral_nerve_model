@@ -21,7 +21,7 @@ import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 
-from misalignment_pairing import PairingPoint, apply_offset_um, pair_points_monotonic_nearest, select_main_path_points
+from misalignment_pairing import PairingPoint, apply_offset_um, pair_points_monotonic_nearest_by_key, select_main_path_points
 
 
 OUT_DIR = Path(__file__).resolve().parent / "data" / "misalignment_pairing_tests"
@@ -34,33 +34,34 @@ class RawPoint:
     x_um: float
     kind: str
     path_type: str
+    pair_key: str
 
 
 RAW_POINTS_A = [
-    RawPoint("branch_node", 100.0, "node", "main"),
-    RawPoint("daughter_mysa", 108.0, "mysa", "daughter"),
-    RawPoint("daughter_flut", 122.0, "flut", "daughter"),
-    RawPoint("daughter_stin_1", 138.0, "stin", "daughter"),
-    RawPoint("daughter_stin_2", 163.0, "stin", "daughter"),
-    RawPoint("main_mysa", 108.0, "mysa", "main"),
-    RawPoint("main_flut", 122.0, "flut", "main"),
-    RawPoint("main_stin_1", 138.0, "stin", "main"),
-    RawPoint("main_stin_2", 163.0, "stin", "main"),
-    RawPoint("main_node", 200.0, "node", "main"),
+    RawPoint("branch_node", 100.0, "node", "main", "node"),
+    RawPoint("daughter_mysa", 108.0, "mysa", "daughter", "mysa_0"),
+    RawPoint("daughter_flut", 122.0, "flut", "daughter", "flut_0"),
+    RawPoint("daughter_stin_1", 138.0, "stin", "daughter", "stin_0"),
+    RawPoint("daughter_stin_2", 163.0, "stin", "daughter", "stin_1"),
+    RawPoint("main_mysa", 108.0, "mysa", "main", "mysa_0"),
+    RawPoint("main_flut", 122.0, "flut", "main", "flut_0"),
+    RawPoint("main_stin_1", 138.0, "stin", "main", "stin_0"),
+    RawPoint("main_stin_2", 163.0, "stin", "main", "stin_1"),
+    RawPoint("main_node", 200.0, "node", "main", "node"),
 ]
 
 RAW_POINTS_B = [
-    RawPoint("pre_node", 0.0, "node", "main"),
-    RawPoint("pre_mysa", 8.0, "mysa", "main"),
-    RawPoint("pre_flut", 22.0, "flut", "main"),
-    RawPoint("pre_stin_1", 38.0, "stin", "main"),
-    RawPoint("pre_stin_2", 63.0, "stin", "main"),
-    RawPoint("branch_node", 100.0, "node", "main"),
-    RawPoint("main_mysa", 108.0, "mysa", "main"),
-    RawPoint("main_flut", 122.0, "flut", "main"),
-    RawPoint("main_stin_1", 138.0, "stin", "main"),
-    RawPoint("main_stin_2", 163.0, "stin", "main"),
-    RawPoint("main_node", 200.0, "node", "main"),
+    RawPoint("pre_node", 0.0, "node", "main", "node"),
+    RawPoint("pre_mysa", 8.0, "mysa", "main", "mysa_0"),
+    RawPoint("pre_flut", 22.0, "flut", "main", "flut_0"),
+    RawPoint("pre_stin_1", 38.0, "stin", "main", "stin_0"),
+    RawPoint("pre_stin_2", 63.0, "stin", "main", "stin_1"),
+    RawPoint("branch_node", 100.0, "node", "main", "node"),
+    RawPoint("main_mysa", 108.0, "mysa", "main", "mysa_0"),
+    RawPoint("main_flut", 122.0, "flut", "main", "flut_0"),
+    RawPoint("main_stin_1", 138.0, "stin", "main", "stin_0"),
+    RawPoint("main_stin_2", 163.0, "stin", "main", "stin_1"),
+    RawPoint("main_node", 200.0, "node", "main", "node"),
 ]
 
 
@@ -83,30 +84,30 @@ EXPECTED_PAIRS = {
         "main_node": "main_node",
     },
     "quarter_step": {
-        "branch_node": "pre_stin_2",
-        "main_mysa": "branch_node",
-        "main_flut": "main_mysa",
-        "main_stin_1": "main_flut",
-        "main_stin_2": "main_stin_1",
-        "main_node": "main_stin_2",
+        "branch_node": "branch_node",
+        "main_mysa": "main_mysa",
+        "main_flut": "main_flut",
+        "main_stin_1": "main_stin_1",
+        "main_stin_2": "main_stin_2",
+        "main_node": "main_node",
     },
     "half_step": {
-        "branch_node": "pre_stin_1",
-        "main_mysa": "pre_stin_2",
-        "main_flut": "branch_node",
-        "main_stin_1": "main_mysa",
-        "main_stin_2": "main_flut",
-        "main_node": "main_stin_1",
+        "branch_node": "branch_node",
+        "main_mysa": "main_mysa",
+        "main_flut": "main_flut",
+        "main_stin_1": "main_stin_1",
+        "main_stin_2": "main_stin_2",
+        "main_node": "main_node",
     },
 }
 
 
 def to_pairing_points(raw_points: list[RawPoint]) -> list[PairingPoint]:
-    return [PairingPoint(name=p.name, x_um=float(p.x_um), kind=p.kind, path_type=p.path_type) for p in raw_points]
+    return [PairingPoint(name=p.name, x_um=float(p.x_um), kind=p.kind, path_type=p.path_type, pair_key=p.pair_key) for p in raw_points]
 
 
 def pair_map(points_a: list[PairingPoint], points_b: list[PairingPoint]) -> dict[str, str]:
-    pairs = pair_points_monotonic_nearest(points_a, points_b)
+    pairs = pair_points_monotonic_nearest_by_key(points_a, points_b)
     return {a.name: b.name for a, b in pairs}
 
 
@@ -152,9 +153,10 @@ def main():
     ascii_lines = []
     for ax, (label, offset_um) in zip(axes, cases):
         shifted_b = apply_offset_um(main_b, offset_um)
-        pairs = pair_points_monotonic_nearest(main_a, shifted_b)
+        pairs = pair_points_monotonic_nearest_by_key(main_a, shifted_b)
         got = {a.name: b.name for a, b in pairs}
         assert got == EXPECTED_PAIRS[label], f"Pair mismatch for {label}: {got}"
+        assert all(a.kind == b.kind for a, b in pairs), f"Cross-kind pair found for {label}: {[(a.kind, b.kind) for a, b in pairs]}"
 
         ascii_lines.append(f"[{label}] offset_um={offset_um:.3f}")
         for a, b in pairs:

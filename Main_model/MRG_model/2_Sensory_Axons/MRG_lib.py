@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from misalignment_pairing import PairingPoint, pair_points_monotonic_nearest
+from misalignment_pairing import PairingPoint, pair_points_monotonic_nearest_by_key
 from neuron_loader import load_neuron_h
 
 h = load_neuron_h()
@@ -1289,7 +1289,7 @@ class MRGaxon:
         first_node = self.main_axon[0]
         first_name = first_node.name()
         first_x = float(self.node_distance_um.get(first_name, 0.0))
-        points.append(PairingPoint(name=first_name, x_um=first_x, kind='node', path_type='main'))
+        points.append(PairingPoint(name=first_name, x_um=first_x, kind='node', path_type='main', pair_key='node'))
 
         node_half = 0.5 * float(self.nodelength)
         for rec in getattr(self, '_step_records', []) or []:
@@ -1302,18 +1302,30 @@ class MRGaxon:
             if not np.isfinite(parent_x):
                 continue
             cur = parent_x + node_half
+            kind_counts = {'mysa': 0, 'flut': 0, 'stin': 0}
             for seg in rec.get('sections', []) or []:
                 name = str(seg.get('name', ''))
                 kind = str(seg.get('type', ''))
                 L = float(seg.get('L', 0.0))
-                points.append(PairingPoint(name=name, x_um=cur + 0.5 * L, kind=kind, path_type='main'))
+                if kind == 'mysa':
+                    pair_key = f'mysa_{kind_counts[kind]}'
+                    kind_counts[kind] += 1
+                elif kind == 'flut':
+                    pair_key = f'flut_{kind_counts[kind]}'
+                    kind_counts[kind] += 1
+                elif kind == 'stin':
+                    pair_key = f'stin_{kind_counts[kind]}'
+                    kind_counts[kind] += 1
+                else:
+                    pair_key = kind
+                points.append(PairingPoint(name=name, x_um=cur + 0.5 * L, kind=kind, path_type='main', pair_key=pair_key))
                 cur += L
 
             next_name = rec.get('next', None)
             if next_name is not None:
                 next_x = float(self.node_distance_um.get(next_name, float('nan')))
                 if np.isfinite(next_x):
-                    points.append(PairingPoint(name=str(next_name), x_um=next_x, kind='node', path_type='main'))
+                    points.append(PairingPoint(name=str(next_name), x_um=next_x, kind='node', path_type='main', pair_key='node'))
 
         return points
 
@@ -2835,7 +2847,7 @@ class TwoSensoryAxonsPrescott:
             for i in range(n)
         ], dtype=float)
         self._pairing_points_A = [
-            PairingPoint(name=namesA[i], x_um=float(centers[i]), kind='node', path_type='main')
+            PairingPoint(name=namesA[i], x_um=float(centers[i]), kind='node', path_type='main', pair_key='node')
             for i in range(n)
         ]
         self._pairing_points_B = [
@@ -2844,6 +2856,7 @@ class TwoSensoryAxonsPrescott:
                 x_um=float(self.axonB.node_distance_um.get(namesB[i], i * float(self.axonB.mrg_params.get('Lstep', 1.0)))),
                 kind='node',
                 path_type='main',
+                pair_key='node',
             )
             for i in range(n)
         ]
@@ -2902,10 +2915,11 @@ class TwoSensoryAxonsPrescott:
 
     def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
         # Arbitrary misalignment: берём реальные центры main-path compartments
-        # (node/MYSA/FLUT/STIN) и строим nearest monotonic one-to-one pairing.
+        # (node/MYSA/FLUT/STIN) и строим nearest monotonic one-to-one pairing
+        # только между одинаковыми электрическими классами.
         pointsA = self.axonA.collect_main_path_pairing_points()
         pointsB = self.axonB.collect_main_path_pairing_points()
-        pairs = pair_points_monotonic_nearest(pointsA, pointsB)
+        pairs = pair_points_monotonic_nearest_by_key(pointsA, pointsB)
 
         self._pairing_points_A = list(pointsA)
         self._pairing_points_B = list(pointsB)
@@ -3075,9 +3089,11 @@ class TwoSensoryAxonsPrescott:
                 'pair_index': int(idx),
                 'name_A': pa.name,
                 'kind_A': pa.kind,
+                'pair_key_A': pa.pair_key,
                 'x_A_um': float(pa.x_um),
                 'name_B': pb.name,
                 'kind_B': pb.kind,
+                'pair_key_B': pb.pair_key,
                 'x_B_um': float(pb.x_um),
                 'dx_um': float(pb.x_um) - float(pa.x_um),
             })

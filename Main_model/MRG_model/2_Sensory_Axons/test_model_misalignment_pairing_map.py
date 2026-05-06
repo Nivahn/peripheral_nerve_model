@@ -87,6 +87,8 @@ def main():
         # One-to-one invariant on B side.
         b_names = [row["name_B"] for row in rows]
         assert len(b_names) == len(set(b_names)), f"Duplicate AxonB pair targets found for {label}"
+        assert all(row["kind_A"] == row["kind_B"] for row in rows), f"Cross-kind pairs found for {label}"
+        assert all(row["pair_key_A"] == row["pair_key_B"] for row in rows), f"Cross-phase pairs found for {label}"
 
         csv_path = OUT_DIR / f"model_pairing_{label}.csv"
         txt_path = OUT_DIR / f"model_pairing_{label}.txt"
