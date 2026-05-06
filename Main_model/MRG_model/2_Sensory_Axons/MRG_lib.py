@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from misalignment_pairing import PairingPoint, pair_points_monotonic_nearest
 from neuron_loader import load_neuron_h
 
 h = load_neuron_h()
@@ -1277,6 +1278,44 @@ class MRGaxon:
                 best_sec = sec
                 best_d = d
         return best_sec(0.5) if best_sec is not None else self.main_axon[0](0.5)
+
+    def collect_main_path_pairing_points(self):
+        # Для arbitrary misalignment pairing используем только main path.
+        # Branch node включаем как обычную main-path node. Daughter path не добавляем вообще.
+        if not getattr(self, 'main_axon', None):
+            return []
+
+        points = []
+        first_node = self.main_axon[0]
+        first_name = first_node.name()
+        first_x = float(self.node_distance_um.get(first_name, 0.0))
+        points.append(PairingPoint(name=first_name, x_um=first_x, kind='node', path_type='main'))
+
+        node_half = 0.5 * float(self.nodelength)
+        for rec in getattr(self, '_step_records', []) or []:
+            if not rec.get('is_trunk', False):
+                continue
+            parent_name = rec.get('parent', None)
+            if not parent_name:
+                continue
+            parent_x = float(self.node_distance_um.get(parent_name, float('nan')))
+            if not np.isfinite(parent_x):
+                continue
+            cur = parent_x + node_half
+            for seg in rec.get('sections', []) or []:
+                name = str(seg.get('name', ''))
+                kind = str(seg.get('type', ''))
+                L = float(seg.get('L', 0.0))
+                points.append(PairingPoint(name=name, x_um=cur + 0.5 * L, kind=kind, path_type='main'))
+                cur += L
+
+            next_name = rec.get('next', None)
+            if next_name is not None:
+                next_x = float(self.node_distance_um.get(next_name, float('nan')))
+                if np.isfinite(next_x):
+                    points.append(PairingPoint(name=str(next_name), x_um=next_x, kind='node', path_type='main'))
+
+        return points
 
     def get_terminal_main_segment(self):
         """Последняя нода главного ствола."""
@@ -2680,6 +2719,7 @@ class TwoSensoryAxonsPrescott:
         perineurium_thickness_cm: float = 4.7e-4,
         boundary_full_cable: bool = False,
         misalignment_um: Optional[float] = None,
+        misalignment_fraction: Optional[float] = None,
         ec_strength_scale: float = 1.0,
     ):
         self.fiber_diameter_um = float(fiber_diameter_um)
@@ -2693,7 +2733,11 @@ class TwoSensoryAxonsPrescott:
         self.perineurium_thickness_cm = float(perineurium_thickness_cm)
         self.boundary_full_cable = bool(boundary_full_cable)
         self.misalignment_um = misalignment_um
+        self.misalignment_fraction = misalignment_fraction
         self.ec_strength_scale = float(ec_strength_scale)
+        self._pairing_points_A = []
+        self._pairing_points_B = []
+        self._pairing_pairs = []
 
         # 1) Строим аксон A (он очищает NEURON)
         self.axonA = MRGaxon(
@@ -2742,7 +2786,9 @@ class TwoSensoryAxonsPrescott:
         self.axonB.recompute_trunk_geometry_for_coupling()
 
         Lstep = float(self.axonA.mrg_params.get('Lstep', 1.0))
-        if self.aligned:
+        if misalignment_fraction is not None:
+            offB = float(misalignment_fraction) * Lstep
+        elif self.aligned:
             offB = 0.0
         else:
             # Prescott misaligned: полушаг по продольной оси.
@@ -2788,6 +2834,20 @@ class TwoSensoryAxonsPrescott:
             float(self.axonA.node_distance_um.get(namesA[i], i * float(self.axonA.mrg_params.get('Lstep', 1.0))))
             for i in range(n)
         ], dtype=float)
+        self._pairing_points_A = [
+            PairingPoint(name=namesA[i], x_um=float(centers[i]), kind='node', path_type='main')
+            for i in range(n)
+        ]
+        self._pairing_points_B = [
+            PairingPoint(
+                name=namesB[i],
+                x_um=float(self.axonB.node_distance_um.get(namesB[i], i * float(self.axonB.mrg_params.get('Lstep', 1.0)))),
+                kind='node',
+                path_type='main',
+            )
+            for i in range(n)
+        ]
+        self._pairing_pairs = list(zip(self._pairing_points_A, self._pairing_points_B))
         s_um = float(self.fiber_diameter_um)
         rg_dimless = _compute_rg_dimless_from_centers(centers, s_um)
         return EphapticSpec(namesA, namesB, rg_dimless)
@@ -2837,6 +2897,24 @@ class TwoSensoryAxonsPrescott:
             second.append(stB.name())
             centers.append(float(self.axonA.node_distance_um.get(nA1, i + 1)))
 
+        rg_dimless = _compute_rg_dimless_from_centers(np.asarray(centers, dtype=float), s_um)
+        return EphapticSpec(first, second, rg_dimless)
+
+    def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
+        # Arbitrary misalignment: берём реальные центры main-path compartments
+        # (node/MYSA/FLUT/STIN) и строим nearest monotonic one-to-one pairing.
+        pointsA = self.axonA.collect_main_path_pairing_points()
+        pointsB = self.axonB.collect_main_path_pairing_points()
+        pairs = pair_points_monotonic_nearest(pointsA, pointsB)
+
+        self._pairing_points_A = list(pointsA)
+        self._pairing_points_B = list(pointsB)
+        self._pairing_pairs = list(pairs)
+
+        first = [pa.name for pa, _ in pairs]
+        second = [pb.name for _, pb in pairs]
+        centers = [float(pa.x_um) for pa, _ in pairs]
+        s_um = float(self.fiber_diameter_um)
         rg_dimless = _compute_rg_dimless_from_centers(np.asarray(centers, dtype=float), s_um)
         return EphapticSpec(first, second, rg_dimless)
 
@@ -2907,10 +2985,10 @@ class TwoSensoryAxonsPrescott:
     def _build_all_couplers(self):
         # 5.1 axon-axon coupling (эндoневрий) -- можно отключить для сравнения
         if self.enable_ephaptic:
-            if self.aligned:
+            if abs(float(self._offsetB_um)) < 1e-12:
                 spec = self._spec_aligned_nodes()
             else:
-                spec = self._spec_misaligned_node_stin()
+                spec = self._spec_offset_nearest_main_path_sections()
 
             # сохраним для графиков анатомии/связи
             self.spec_AB = spec
@@ -2989,6 +3067,53 @@ class TwoSensoryAxonsPrescott:
             self.boundaryA,
             self.boundaryB,
         ]
+
+    def get_axon_axon_pairing_rows(self):
+        rows = []
+        for idx, (pa, pb) in enumerate(getattr(self, '_pairing_pairs', []) or []):
+            rows.append({
+                'pair_index': int(idx),
+                'name_A': pa.name,
+                'kind_A': pa.kind,
+                'x_A_um': float(pa.x_um),
+                'name_B': pb.name,
+                'kind_B': pb.kind,
+                'x_B_um': float(pb.x_um),
+                'dx_um': float(pb.x_um) - float(pa.x_um),
+            })
+        return rows
+
+    def plot_axon_axon_pairing_map(self, save_path=None, max_labels: int = 120):
+        pointsA = list(getattr(self, '_pairing_points_A', []) or [])
+        pointsB = list(getattr(self, '_pairing_points_B', []) or [])
+        pairs = list(getattr(self, '_pairing_pairs', []) or [])
+        if not pointsA or not pointsB or not pairs:
+            return
+
+        fig, ax = plt.subplots(1, 1, figsize=(14.0, 5.0), dpi=180)
+        ax.scatter([p.x_um for p in pointsA], [1.0] * len(pointsA), color='#2563eb', s=18, label='AxonA main path')
+        ax.scatter([p.x_um for p in pointsB], [0.0] * len(pointsB), color='#dc2626', s=18, label='AxonB main path')
+
+        if int(max_labels) > 0:
+            stepA = max(1, int(round(len(pointsA) / max_labels)))
+            stepB = max(1, int(round(len(pointsB) / max_labels)))
+            for p in pointsA[::stepA]:
+                ax.text(p.x_um, 1.04, f"{p.kind}:{p.name}", fontsize=6, rotation=45, ha='left', va='bottom', color='#2563eb')
+            for p in pointsB[::stepB]:
+                ax.text(p.x_um, -0.04, f"{p.kind}:{p.name}", fontsize=6, rotation=45, ha='left', va='top', color='#dc2626')
+
+        for pa, pb in pairs:
+            ax.plot([pa.x_um, pb.x_um], [1.0, 0.0], color='#111827', lw=0.8, alpha=0.45)
+
+        ax.set_yticks([0.0, 1.0])
+        ax.set_yticklabels(['AxonB', 'AxonA'])
+        ax.grid(True, axis='x', alpha=0.25)
+        ax.set_title(f"Axon pairing map | offsetB={self._offsetB_um:.3f} um")
+        ax.legend(loc='upper right')
+        fig.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
 
     # ------------------------------------------------------------------------------------
     # ДОБАВЛЕНО (2026-03): График "анатомии" в 2D (продольная схема)
