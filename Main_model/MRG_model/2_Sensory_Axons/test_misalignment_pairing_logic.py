@@ -21,7 +21,14 @@ import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 
-from misalignment_pairing import PairingPoint, apply_offset_um, pair_points_monotonic_nearest_by_key, select_main_path_points
+from misalignment_pairing import (
+    PairingPoint,
+    PairingUnit,
+    apply_offset_um,
+    flatten_paired_units,
+    pair_units_monotonic_nearest_by_node,
+    select_main_path_points,
+)
 
 
 OUT_DIR = Path(__file__).resolve().parent / "data" / "misalignment_pairing_tests"
@@ -107,8 +114,32 @@ def to_pairing_points(raw_points: list[RawPoint]) -> list[PairingPoint]:
 
 
 def pair_map(points_a: list[PairingPoint], points_b: list[PairingPoint]) -> dict[str, str]:
-    pairs = pair_points_monotonic_nearest_by_key(points_a, points_b)
+    pairs = flatten_paired_units(pair_units_monotonic_nearest_by_node(points_to_units(points_a), points_to_units(points_b), target_dx_um=0.0))
     return {a.name: b.name for a, b in pairs}
+
+
+def points_to_units(points: list[PairingPoint]) -> list[PairingUnit]:
+    by_name = {p.name: p for p in points}
+    return [
+        PairingUnit(
+            unit_index=0,
+            node=by_name["branch_node"],
+            mysa_left=by_name["main_mysa"],
+            flut_left=by_name["main_flut"],
+            stins=(by_name["main_stin_1"], by_name["main_stin_2"]),
+            flut_right=None,
+            mysa_right=None,
+        ),
+        PairingUnit(
+            unit_index=1,
+            node=by_name["main_node"],
+            mysa_left=None,
+            flut_left=None,
+            stins=tuple(),
+            flut_right=None,
+            mysa_right=None,
+        ),
+    ]
 
 
 def plot_case(ax, title: str, points_a, points_b, pairs):
@@ -153,7 +184,10 @@ def main():
     ascii_lines = []
     for ax, (label, offset_um) in zip(axes, cases):
         shifted_b = apply_offset_um(main_b, offset_um)
-        pairs = pair_points_monotonic_nearest_by_key(main_a, shifted_b)
+        units_a = points_to_units(main_a)
+        units_b = points_to_units(shifted_b)
+        unit_pairs = pair_units_monotonic_nearest_by_node(units_a, units_b, target_dx_um=offset_um)
+        pairs = flatten_paired_units(unit_pairs)
         got = {a.name: b.name for a, b in pairs}
         assert got == EXPECTED_PAIRS[label], f"Pair mismatch for {label}: {got}"
         assert all(a.kind == b.kind for a, b in pairs), f"Cross-kind pair found for {label}: {[(a.kind, b.kind) for a, b in pairs]}"

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from misalignment_pairing import PairingPoint, pair_points_monotonic_nearest_by_key
+from misalignment_pairing import PairingPoint, PairingUnit, pair_units_monotonic_nearest_by_node, flatten_paired_units
 from neuron_loader import load_neuron_h
 
 h = load_neuron_h()
@@ -1108,56 +1108,45 @@ class MRGaxon:
         return self.secs_by_name[name]
 
     # ------------------------------------------------------------------------------------
-    # ДОБАВЛЕНО (2026-03): пересчёт продольных координат ствола для ephaptic coupling.
+    # ДОБАВЛЕНО (2026-03): подготовка trunk-координат для ephaptic coupling.
     #
-    # Проблема:
-    #   При ветвлении в вашем билдере создаются дополнительные ноды (для дочерней ветви),
-    #   из-за чего имена нод на стволе после ветвления могут "прыгать" (node_10 -> node_32).
-    #   Для построения карты связи (и для схемы) нам важна НЕ строка имени, а координата по X.
-    #
-    # Решение:
-    #   После построения аксона мы берём фактический список ствола self.main_axon и
-    #   назначаем координаты: x = i * Lstep (как у Prescott для ровного аксона).
-    #   Также пересчитываем центры mid-STIN секций между соседними узлами ствола.
+    # Важно: здесь нельзя затирать реальные координаты узлов равномерной сеткой.
+    # После branch point переходная зона main trunk может иметь другой реальный Lstep,
+    # поэтому pairing должен опираться на координаты, уже накопленные в build_axon().
+    # Мы только копируем реальные node centers в trunk_center_um и обновляем midpoint
+    # для trunk mid-STIN как середину между соседними node centers.
     # ------------------------------------------------------------------------------------
     def recompute_trunk_geometry_for_coupling(self):
         if not hasattr(self, 'main_axon') or not self.main_axon:
             return
-        if not hasattr(self, 'mrg_params'):
-            return
 
-        Lstep = float(self.mrg_params.get('Lstep', 1.0))
-        node_half = float(self.nodelength) / 2.0
-        mysa_L = float(self.mrg_params.get('paral1', self.paralength1))
-        flut_L = float(self.mrg_params.get('paral2', 0.0))
-        stin_L = float(self.mrg_params.get('interL', 0.0))
-
-        # Узлы ствола
-        for i, sec in enumerate(list(self.main_axon)):
+        # Не пересчитываем node_distance_um заново. Берём реальные trunk node centers,
+        # которые были построены в build_axon() с учётом переходных branch-step lengths.
+        for sec in list(self.main_axon):
             nm = sec.name()
-            x = float(i) * Lstep
-            self.node_distance_um[nm] = x
-            self.trunk_center_um[nm] = x
+            if nm not in self.node_distance_um:
+                raise RuntimeError(f"Нет координаты для trunk node '{nm}' в node_distance_um")
+            self.trunk_center_um[nm] = float(self.node_distance_um[nm])
 
         # mid-STIN по каждому ребру (node[i] -> node[i+1])
         for i in range(1, len(self.main_axon)):
             prev = self.main_axon[i - 1]
             nxt = self.main_axon[i]
-            prev_x = float(self.node_distance_um.get(prev.name(), (i - 1) * Lstep))
+            prev_name = prev.name()
+            next_name = nxt.name()
+            if prev_name not in self.node_distance_um or next_name not in self.node_distance_um:
+                continue
 
-            mid = self._trunk_stin_mid_by_next_node.get(nxt.name(), None)
+            prev_x = float(self.node_distance_um[prev_name])
+            next_x = float(self.node_distance_um[next_name])
+
+            mid = self._trunk_stin_mid_by_next_node.get(next_name, None)
             if mid is None:
                 continue
 
-            mid_idx = self._trunk_stin_mid_idx_by_next_node.get(nxt.name(), None)
-            if mid_idx is None:
-                # fallback: выбираем ближайший STIN к midpoint
-                mid_target = prev_x + 0.5 * Lstep
-                cand = [prev_x + node_half + mysa_L + flut_L + (k + 0.5) * stin_L for k in range(6)]
-                mid_idx = int(np.argmin(np.abs(np.asarray(cand, dtype=float) - float(mid_target))))
-
-            # Prescott midpoint между node centers
-            mid_center = prev_x + 0.5 * Lstep
+            # Mid-STIN должен стоять в середине между соседними trunk nodes,
+            # а не в середине искусственного базового Lstep.
+            mid_center = 0.5 * (prev_x + next_x)
             self.trunk_center_um[mid.name()] = float(mid_center)
 
 
@@ -1280,20 +1269,31 @@ class MRGaxon:
         return best_sec(0.5) if best_sec is not None else self.main_axon[0](0.5)
 
     def collect_main_path_pairing_points(self):
-        # Для arbitrary misalignment pairing используем только main path.
-        # Branch node включаем как обычную main-path node. Daughter path не добавляем вообще.
-        if not getattr(self, 'main_axon', None):
-            return []
-
         points = []
-        first_node = self.main_axon[0]
-        first_name = first_node.name()
-        first_x = float(self.node_distance_um.get(first_name, 0.0))
-        points.append(PairingPoint(name=first_name, x_um=first_x, kind='node', path_type='main', pair_key='node'))
+        for unit in self.collect_main_path_pairing_units():
+            points.append(unit.node)
+            if unit.mysa_left is not None:
+                points.append(unit.mysa_left)
+            if unit.flut_left is not None:
+                points.append(unit.flut_left)
+            points.extend(list(unit.stins))
+            if unit.flut_right is not None:
+                points.append(unit.flut_right)
+            if unit.mysa_right is not None:
+                points.append(unit.mysa_right)
+        return points
+
+    def collect_main_path_pairing_units(self):
+        # Main trunk pairing строится не по глобальному списку секций, а по MRG units.
+        # Каждый unit = node + outgoing MYSA/FLUT/STIN... до следующей node.
+        units = []
+        if not getattr(self, 'main_axon', None):
+            return units
 
         node_half = 0.5 * float(self.nodelength)
+        unit_index = 0
         for rec in getattr(self, '_step_records', []) or []:
-            if not rec.get('is_trunk', False):
+            if not rec.get('is_trunk', False) and not rec.get('is_terminal_tail', False):
                 continue
             parent_name = rec.get('parent', None)
             if not parent_name:
@@ -1301,33 +1301,45 @@ class MRGaxon:
             parent_x = float(self.node_distance_um.get(parent_name, float('nan')))
             if not np.isfinite(parent_x):
                 continue
+
+            node_point = PairingPoint(name=str(parent_name), x_um=parent_x, kind='node', path_type='main', pair_key='node')
             cur = parent_x + node_half
-            kind_counts = {'mysa': 0, 'flut': 0, 'stin': 0}
+            mysas = []
+            fluts = []
+            stins = []
             for seg in rec.get('sections', []) or []:
                 name = str(seg.get('name', ''))
                 kind = str(seg.get('type', ''))
                 L = float(seg.get('L', 0.0))
+                x_center = cur + 0.5 * L
                 if kind == 'mysa':
-                    pair_key = f'mysa_{kind_counts[kind]}'
-                    kind_counts[kind] += 1
+                    idx = len(mysas)
+                    point = PairingPoint(name=name, x_um=x_center, kind=kind, path_type='main', pair_key=f'mysa_{idx}')
+                    mysas.append(point)
                 elif kind == 'flut':
-                    pair_key = f'flut_{kind_counts[kind]}'
-                    kind_counts[kind] += 1
+                    idx = len(fluts)
+                    point = PairingPoint(name=name, x_um=x_center, kind=kind, path_type='main', pair_key=f'flut_{idx}')
+                    fluts.append(point)
                 elif kind == 'stin':
-                    pair_key = f'stin_{kind_counts[kind]}'
-                    kind_counts[kind] += 1
-                else:
-                    pair_key = kind
-                points.append(PairingPoint(name=name, x_um=cur + 0.5 * L, kind=kind, path_type='main', pair_key=pair_key))
+                    idx = len(stins)
+                    point = PairingPoint(name=name, x_um=x_center, kind=kind, path_type='main', pair_key=f'stin_{idx}')
+                    stins.append(point)
                 cur += L
 
-            next_name = rec.get('next', None)
-            if next_name is not None:
-                next_x = float(self.node_distance_um.get(next_name, float('nan')))
-                if np.isfinite(next_x):
-                    points.append(PairingPoint(name=str(next_name), x_um=next_x, kind='node', path_type='main', pair_key='node'))
+            units.append(
+                PairingUnit(
+                    unit_index=int(unit_index),
+                    node=node_point,
+                    mysa_left=mysas[0] if len(mysas) >= 1 else None,
+                    flut_left=fluts[0] if len(fluts) >= 1 else None,
+                    stins=tuple(stins),
+                    flut_right=fluts[1] if len(fluts) >= 2 else None,
+                    mysa_right=mysas[1] if len(mysas) >= 2 else None,
+                )
+            )
+            unit_index += 1
 
-        return points
+        return units
 
     def get_terminal_main_segment(self):
         """Последняя нода главного ствола."""
@@ -2914,15 +2926,15 @@ class TwoSensoryAxonsPrescott:
         return EphapticSpec(first, second, rg_dimless)
 
     def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
-        # Arbitrary misalignment: берём реальные центры main-path compartments
-        # (node/MYSA/FLUT/STIN) и строим nearest monotonic one-to-one pairing
-        # только между одинаковыми электрическими классами.
-        pointsA = self.axonA.collect_main_path_pairing_points()
-        pointsB = self.axonB.collect_main_path_pairing_points()
-        pairs = pair_points_monotonic_nearest_by_key(pointsA, pointsB)
+        # Arbitrary misalignment: сначала матчим main-trunk units по узлам,
+        # потом внутри matched units связываем однотипные секции fixed-phase образом.
+        unitsA = self.axonA.collect_main_path_pairing_units()
+        unitsB = self.axonB.collect_main_path_pairing_units()
+        unit_pairs = pair_units_monotonic_nearest_by_node(unitsA, unitsB, target_dx_um=float(self._offsetB_um))
+        pairs = flatten_paired_units(unit_pairs)
 
-        self._pairing_points_A = list(pointsA)
-        self._pairing_points_B = list(pointsB)
+        self._pairing_points_A = self.axonA.collect_main_path_pairing_points()
+        self._pairing_points_B = self.axonB.collect_main_path_pairing_points()
         self._pairing_pairs = list(pairs)
 
         first = [pa.name for pa, _ in pairs]
@@ -2999,10 +3011,9 @@ class TwoSensoryAxonsPrescott:
     def _build_all_couplers(self):
         # 5.1 axon-axon coupling (эндoневрий) -- можно отключить для сравнения
         if self.enable_ephaptic:
-            if abs(float(self._offsetB_um)) < 1e-12:
-                spec = self._spec_aligned_nodes()
-            else:
-                spec = self._spec_offset_nearest_main_path_sections()
+            # Для обоих режимов (aligned и misaligned) используем одну и ту же
+            # branch-aware unit-based trunk pairing логику. Разница только в target dx.
+            spec = self._spec_offset_nearest_main_path_sections()
 
             # сохраним для графиков анатомии/связи
             self.spec_AB = spec
@@ -3090,10 +3101,12 @@ class TwoSensoryAxonsPrescott:
                 'name_A': pa.name,
                 'kind_A': pa.kind,
                 'pair_key_A': pa.pair_key,
+                'path_type_A': pa.path_type,
                 'x_A_um': float(pa.x_um),
                 'name_B': pb.name,
                 'kind_B': pb.kind,
                 'pair_key_B': pb.pair_key,
+                'path_type_B': pb.path_type,
                 'x_B_um': float(pb.x_um),
                 'dx_um': float(pb.x_um) - float(pa.x_um),
             })
