@@ -198,6 +198,7 @@ class MRGaxon:
              branch_every_um=None,
              diam_scale=0.6,
              branch_node_scale=1.0,
+             preserve_main_trunk_lstep=True,
              main_after_branch_scale=None,
              daughter_branch_scale=None,
              main_after_branch_fiber_diameter=None,
@@ -234,6 +235,7 @@ class MRGaxon:
         self.nodes_dist = nodes_dist
         self.diam_scale = diam_scale
         self.branch_node_scale = float(branch_node_scale)
+        self.preserve_main_trunk_lstep = bool(preserve_main_trunk_lstep)
 
         # Отдельные масштабы main и daughter лучше отражают, что после branch point
         # главный путь и дочерняя ветвь не обязаны иметь одинаковую геометрию.
@@ -357,6 +359,8 @@ class MRGaxon:
             target_fiber_diameter=self.main_after_branch_fiber_diameter,
             fallback_scale=self.main_after_branch_scale,
         )
+        if self.preserve_main_trunk_lstep:
+            self.main_after_branch_params = self._with_preserved_main_trunk_lstep(self.main_after_branch_params)
         self.daughter_branch_params = self._build_branch_target_params(
             target_fiber_diameter=self.daughter_branch_fiber_diameter,
             fallback_scale=self.daughter_branch_scale,
@@ -473,6 +477,23 @@ class MRGaxon:
         # Затем получаем полный набор параметров для нового диаметра, а не просто умножаем diam.
         target_fiber_diameter = float(self.fiber_diameter) * float(scale)
         return self._get_mrg_params(target_fiber_diameter)
+
+    def _with_preserved_main_trunk_lstep(self, params: dict):
+        # Для main continuation сохраняем физическую продольную сетку родительского ствола.
+        # Диаметры/канальные параметры могут меняться, но node-to-node spacing остаётся parent-like.
+        preserved_lstep = float(self.mrg_params['Lstep'])
+        fixed_length = float(self.nodelength) + 2.0 * float(params['paral1']) + 2.0 * float(params['paral2'])
+        interL = (preserved_lstep - fixed_length) / 6.0
+        if interL <= 0.0:
+            raise ValueError(
+                f"preserve_main_trunk_lstep produced non-positive interL={interL} for fiberD={params.get('fiberD')}"
+            )
+        patched = dict(params)
+        patched['interL'] = float(interL)
+        patched['Lstep'] = float(preserved_lstep)
+        if 'delta_z' in patched:
+            patched['delta_z'] = float(preserved_lstep)
+        return patched
 
     def _params_for_branch_step(self, *, target_params: dict, transition_nodes: int, step_index_from_branch: int):
         """Простая branch transition zone.
