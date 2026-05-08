@@ -198,6 +198,7 @@ class MRGaxon:
              branch_every_um=None,
              diam_scale=0.6,
              branch_node_scale=1.0,
+             branch_topology_mode="node",
              preserve_main_trunk_lstep=True,
              main_after_branch_scale=None,
              daughter_branch_scale=None,
@@ -235,6 +236,7 @@ class MRGaxon:
         self.nodes_dist = nodes_dist
         self.diam_scale = diam_scale
         self.branch_node_scale = float(branch_node_scale)
+        self.branch_topology_mode = str(branch_topology_mode)
         self.preserve_main_trunk_lstep = bool(preserve_main_trunk_lstep)
 
         # Отдельные масштабы main и daughter лучше отражают, что после branch point
@@ -805,6 +807,106 @@ class MRGaxon:
         except Exception:
             pass
 
+    def _build_branch_daughter_chain(self, branch_parent, branch_distance_um, target_params, branch_path_store: list, *, use_connector_length_um: float = 0.0):
+        term_chain = []
+        P_daughter_step0 = self._params_for_branch_step(
+            target_params=target_params,
+            transition_nodes=self.daughter_transition_nodes,
+            step_index_from_branch=1,
+        )
+        d0 = self.append_one_step(branch_parent, P_daughter_step0, track_trunk=False)
+        term_chain.append(d0)
+        daughter_terminal_tail_params = P_daughter_step0
+
+        if branch_distance_um is None:
+            branch_distance_um = 0.0
+        Lstep_d0 = float(P_daughter_step0.get('Lstep', 1.0))
+        self.node_distance_um[d0.name()] = float(branch_distance_um + float(use_connector_length_um) + Lstep_d0)
+        self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + float(use_connector_length_um) + Lstep_d0)
+
+        prev = d0
+        for i in range(1, self.branch_nodes):
+            P = self._params_for_branch_step(
+                target_params=target_params,
+                transition_nodes=self.daughter_transition_nodes,
+                step_index_from_branch=i + 1,
+            )
+            nxt = self.append_one_step(prev, P, track_trunk=False)
+            term_chain.append(nxt)
+            prev = nxt
+            daughter_terminal_tail_params = P
+            prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
+            self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+            self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+
+        branch_path_store.extend(term_chain)
+        return term_chain, daughter_terminal_tail_params
+
+    def _build_branch_main_first_node(self, branch_parent, branch_distance_um, target_params, *, use_connector_length_um: float = 0.0):
+        P_main_step0 = self._params_for_branch_step(
+            target_params=target_params,
+            transition_nodes=self.main_transition_nodes,
+            step_index_from_branch=1,
+        )
+        node_3 = self.append_one_step(branch_parent, P_main_step0, track_trunk=True)
+        self.node_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + P_main_step0['Lstep'])
+        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + P_main_step0['Lstep'])
+        self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
+        return node_3, P_main_step0
+
+    def _build_branch_legacy_connector(self, branch_node, branch_distance_um, P_main_target, P_daughter_target):
+        connector_diam_um = float(branch_node.diam) * float(self.branch_connector_diam_scale)
+        daughter_conn = self.make_branch_connector(connector_diam_um, self.branch_connector_length_um)
+        main_conn = self.make_branch_connector(connector_diam_um, self.branch_connector_length_um)
+        daughter_conn.connect(branch_node, 1.0, 0.0)
+        main_conn.connect(branch_node, 1.0, 0.0)
+
+        term_chain = []
+
+        # Legacy mode: first daughter node is attached through connector, then ordinary MRG steps follow.
+        d0 = self.make_node(
+            P_daughter_target['nodeD'],
+            self.nodelength,
+            P_daughter_target['rpn0'],
+            node_channel_overrides=P_daughter_target.get('node_channel_overrides', self.node_channel_overrides),
+        )
+        d0.connect(daughter_conn, 1.0, 0.0)
+        term_chain.append(d0)
+        daughter_terminal_tail_params = P_daughter_target
+
+        if branch_distance_um is None:
+            branch_distance_um = 0.0
+        Lstep_d0 = float(P_daughter_target.get('Lstep', 1.0))
+        self.node_distance_um[d0.name()] = float(branch_distance_um + self.branch_connector_length_um + Lstep_d0)
+        self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + self.branch_connector_length_um + Lstep_d0)
+
+        prev = d0
+        for i in range(1, self.branch_nodes):
+            P = self._params_for_branch_step(
+                target_params=P_daughter_target,
+                transition_nodes=self.daughter_transition_nodes,
+                step_index_from_branch=i + 1,
+            )
+            nxt = self.append_one_step(prev, P, track_trunk=False)
+            term_chain.append(nxt)
+            prev = nxt
+            daughter_terminal_tail_params = P
+            prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
+            self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+            self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+
+        node_3 = self.make_node(
+            P_main_target['nodeD'],
+            self.nodelength,
+            P_main_target['rpn0'],
+            node_channel_overrides=P_main_target.get('node_channel_overrides', self.node_channel_overrides),
+        )
+        node_3.connect(main_conn, 1.0, 0.0)
+        self.node_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + P_main_target['Lstep'])
+        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + P_main_target['Lstep'])
+        self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
+        return term_chain, node_3, P_main_target, daughter_terminal_tail_params
+
     def build_chain(self, n_nodes, params, node_mech=None):
 
         nodes = [
@@ -980,55 +1082,61 @@ class MRGaxon:
                 P_main_target = self.main_after_branch_params
                 P_daughter_target = self.daughter_branch_params
 
-                term_chain = []
-
-                # В branch_node topology обе ветви стартуют прямо из branch_node.
-                # Отдельный connector не вставляем, чтобы не плодить лишнюю геометрию у развилки.
-                P_daughter_step0 = self._params_for_branch_step(
-                    target_params=P_daughter_target,
-                    transition_nodes=self.daughter_transition_nodes,
-                    step_index_from_branch=1,
-                )
-                d0 = self.append_one_step(branch_node, P_daughter_step0, track_trunk=False)
-                term_chain.append(d0)
-                daughter_terminal_tail_params = P_daughter_step0
-
-                # Примерная продольная координата нод дочерней ветви (для boundary cable).
-                # В Prescott boundary-cable задаёт условия для vext[1] по продольной координате.
-                # Если ветвь не подключить к boundary-cable, vext[1] на ветви может "плавать"
-                # и давать не-физичные ранние/самопроизвольные деполяризации.
                 if branch_distance_um is None:
                     branch_distance_um = float(total_length_um)
-                Lstep_d0 = float(P_daughter_step0.get('Lstep', 1.0))
-                self.node_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
-                self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
 
-                # дальше шаги
-                prev = d0
-                for i in range(1, self.branch_nodes):
-                    P = self._params_for_branch_step(
+                if self.branch_topology_mode == 'connector_legacy':
+                    term_chain, node_3, P_main_step0, daughter_terminal_tail_params = self._build_branch_legacy_connector(
+                        branch_node,
+                        branch_distance_um,
+                        P_main_target,
+                        P_daughter_target,
+                    )
+                    main_terminal_tail_params = P_main_step0
+                else:
+                    term_chain = []
+
+                    # Current mode: обе ветви стартуют прямо из branch_node.
+                    # Это более компактная topology без отдельного connector section.
+                    P_daughter_step0 = self._params_for_branch_step(
                         target_params=P_daughter_target,
                         transition_nodes=self.daughter_transition_nodes,
-                        step_index_from_branch=i + 1,
+                        step_index_from_branch=1,
                     )
-                    nxt = self.append_one_step(prev, P, track_trunk=False)
-                    term_chain.append(nxt)
-                    prev = nxt
-                    daughter_terminal_tail_params = P
+                    d0 = self.append_one_step(branch_node, P_daughter_step0, track_trunk=False)
+                    term_chain.append(d0)
+                    daughter_terminal_tail_params = P_daughter_step0
 
-                    prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
-                    self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
-                    self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+                    Lstep_d0 = float(P_daughter_step0.get('Lstep', 1.0))
+                    self.node_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
+                    self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
 
-                # Main continuation тоже стартует прямо из branch_node и получает те же
-                # правила: первые N нод используют post-branch ASCENT параметры, потом возврат к parent.
-                P_main_step0 = self._params_for_branch_step(
-                    target_params=P_main_target,
-                    transition_nodes=self.main_transition_nodes,
-                    step_index_from_branch=1,
-                )
-                node_3 = self.append_one_step(branch_node, P_main_step0, track_trunk=True)
-                main_terminal_tail_params = P_main_step0
+                    prev = d0
+                    for i in range(1, self.branch_nodes):
+                        P = self._params_for_branch_step(
+                            target_params=P_daughter_target,
+                            transition_nodes=self.daughter_transition_nodes,
+                            step_index_from_branch=i + 1,
+                        )
+                        nxt = self.append_one_step(prev, P, track_trunk=False)
+                        term_chain.append(nxt)
+                        prev = nxt
+                        daughter_terminal_tail_params = P
+
+                        prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
+                        self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+                        self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+
+                    P_main_step0 = self._params_for_branch_step(
+                        target_params=P_main_target,
+                        transition_nodes=self.main_transition_nodes,
+                        step_index_from_branch=1,
+                    )
+                    node_3 = self.append_one_step(branch_node, P_main_step0, track_trunk=True)
+                    main_terminal_tail_params = P_main_step0
+                    self.node_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
+                    self.main_path_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
+                    self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
 
                 # ---------------------------------------------------------------------------------
                 # ИЗМЕНЕНО (2026-03): после ветвления на основном стволе в HDF5 пишем
@@ -1071,9 +1179,6 @@ class MRGaxon:
 
                 # main продолжается с node_3
                 self.main_axon.append(node_3)
-                self.node_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
-                self.main_path_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
-                self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
                 total_length_um = self.node_distance_um[node_3.name()]
 
                 node_D_after_branching = True
@@ -2753,6 +2858,10 @@ class TwoSensoryAxonsPrescott:
         branch_every_um_B=None,
         # Общие
         diam_scale: float = 0.6,
+        branch_topology_mode_A: str = 'node',
+        branch_topology_mode_B: str = 'node',
+        branch_connector_length_um: float = 1.0,
+        branch_connector_diam_scale: float = 1.0,
         celsius: float = 37.0,
         dt_ms: float = 0.005,
         v_init: float = -80.0,
@@ -2793,6 +2902,9 @@ class TwoSensoryAxonsPrescott:
             nodes_dist=nodes_dist_A,
             branch_every_um=branch_every_um_A,
             diam_scale=diam_scale,
+            branch_topology_mode=branch_topology_mode_A,
+            branch_connector_length_um=branch_connector_length_um,
+            branch_connector_diam_scale=branch_connector_diam_scale,
             celsius=celsius,
             dt_ms=dt_ms,
             v_init=v_init,
@@ -2810,6 +2922,9 @@ class TwoSensoryAxonsPrescott:
             nodes_dist=nodes_dist_B,
             branch_every_um=branch_every_um_B,
             diam_scale=diam_scale,
+            branch_topology_mode=branch_topology_mode_B,
+            branch_connector_length_um=branch_connector_length_um,
+            branch_connector_diam_scale=branch_connector_diam_scale,
             celsius=celsius,
             dt_ms=dt_ms,
             v_init=v_init,
@@ -3542,40 +3657,68 @@ class TwoSensoryAxonsPrescott:
     ):
         """Собирает точки записи для двухаксоновой модели.
 
-        Доп. режим по запросу пользователя:
-          - без stimulation_point
-          - AxonA: точки before_like / main_like + terminal_main
-          - AxonB: branch-related точки + terminal_main + terminal_daughter
+        Новое правило записи:
+          - если аксон ветвится: пишем его собственные branch-related точки
+            before_branch / branch_point / after_branch_main / after_branch_daughter
+            + terminal_main / terminal_daughter
+          - если аксон не ветвится: пишем сопоставимые main-path точки с теми же именами
+            before_branch / after_branch_main / after_branch_daughter
+            по расстояниям ближайшего ветвящегося аксона.
         """
 
         extraA = []
         extraB = []
 
-        if record_axonA_before_like and getattr(self.axonB, 'before_branch_id', None):
-            seg_ref = self.axonB.before_branch_id[0]
-            x_ref = float(self.axonB.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
-            if np.isfinite(x_ref):
-                segA = self.axonA.get_node_segment_nearest_main_path_distance(x_ref)
-                if segA is not None:
-                    extraA.append(('before_like', segA))
+        def _has_branch(axon: MRGaxon) -> bool:
+            return bool(getattr(axon, 'branch_point_id', None))
 
-        if record_axonA_main_like and getattr(self.axonB, 'after_branch_main_id', None):
-            seg_ref = self.axonB.after_branch_main_id[0]
-            x_ref = float(self.axonB.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
-            if np.isfinite(x_ref):
-                segA = self.axonA.get_node_segment_nearest_main_path_distance(x_ref)
-                if segA is not None:
-                    extraA.append(('main_like', segA))
+        def _append_if_valid(dst: list, label: str, seg):
+            if seg is not None:
+                dst.append((label, seg))
+
+        def _map_like_points(dst: list, axon_target: MRGaxon, axon_ref: MRGaxon):
+            # Для неветвящегося аксона строим точки main-path, сопоставимые с branch-related
+            # точками ветвящегося аксона. Имена делаем такими же, чтобы downstream analysis
+            # не различал "ветвь" и "like"-точки.
+            if getattr(axon_ref, 'before_branch_id', None):
+                seg_ref = axon_ref.before_branch_id[0]
+                x_ref = float(axon_ref.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
+                if np.isfinite(x_ref):
+                    _append_if_valid(dst, 'before_branch', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
+
+            if getattr(axon_ref, 'after_branch_main_id', None):
+                seg_ref = axon_ref.after_branch_main_id[0]
+                x_ref = float(axon_ref.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
+                if np.isfinite(x_ref):
+                    _append_if_valid(dst, 'after_branch_main', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
+
+            if getattr(axon_ref, 'after_branch_daughter_id', None):
+                seg_ref = axon_ref.after_branch_daughter_id[0]
+                x_ref = float(axon_ref.daughter_path_distance_um.get(seg_ref.sec.name(), float('nan')))
+                if np.isfinite(x_ref):
+                    _append_if_valid(dst, 'after_branch_daughter', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
+
+        branched_A = _has_branch(self.axonA)
+        branched_B = _has_branch(self.axonB)
+
+        if not branched_A and branched_B:
+            _map_like_points(extraA, self.axonA, self.axonB)
+        elif not branched_B and branched_A:
+            _map_like_points(extraB, self.axonB, self.axonA)
 
         if record_terminal_nodes:
             segA_term = self.axonA.get_terminal_main_segment()
             segB_term_main = self.axonB.get_terminal_main_segment()
             segB_term_dau = self.axonB.get_terminal_daughter_segment()
-            if segA_term is not None:
+            if branched_A and segA_term is not None:
                 extraA.append(('terminal_main', segA_term))
-            if segB_term_main is not None:
+            if branched_A:
+                segA_term_dau = self.axonA.get_terminal_daughter_segment()
+                if segA_term_dau is not None:
+                    extraA.append(('terminal_daughter', segA_term_dau))
+            if branched_B and segB_term_main is not None:
                 extraB.append(('terminal_main', segB_term_main))
-            if segB_term_dau is not None:
+            if branched_B and segB_term_dau is not None:
                 extraB.append(('terminal_daughter', segB_term_dau))
 
         segA, namesA = self.axonA.collect_recording_targets(
