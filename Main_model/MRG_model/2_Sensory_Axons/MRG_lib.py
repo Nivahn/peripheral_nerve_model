@@ -224,7 +224,10 @@ class MRGaxon:
              diam_scale=0.6,
              branch_node_scale=1.0,
              branch_topology_mode="node",
-             preserve_main_trunk_lstep=True,
+             main_after_branch_diam_scale=1.0,
+             daughter_branch_diam_scale=0.6,
+             main_after_branch_param_mode="scaled_radial",
+             daughter_branch_param_mode="ascent_full",
              main_after_branch_scale=None,
              daughter_branch_scale=None,
              main_after_branch_fiber_diameter=None,
@@ -264,12 +267,19 @@ class MRGaxon:
         self.diam_scale = diam_scale
         self.branch_node_scale = float(branch_node_scale)
         self.branch_topology_mode = str(branch_topology_mode)
-        self.preserve_main_trunk_lstep = bool(preserve_main_trunk_lstep)
 
-        # Отдельные масштабы main и daughter лучше отражают, что после branch point
-        # главный путь и дочерняя ветвь не обязаны иметь одинаковую геометрию.
-        self.main_after_branch_scale = float(diam_scale if main_after_branch_scale is None else main_after_branch_scale)
-        self.daughter_branch_scale = float(diam_scale if daughter_branch_scale is None else daughter_branch_scale)
+        # Явно разделяем масштаб диаметра и способ параметризации после ветвления.
+        # Старые *_scale аргументы оставлены как fallback для существующих запусков.
+        if main_after_branch_scale is not None:
+            main_after_branch_diam_scale = main_after_branch_scale
+        if daughter_branch_scale is not None:
+            daughter_branch_diam_scale = daughter_branch_scale
+        self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
+        self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
+        self.main_after_branch_param_mode = self._normalize_post_branch_param_mode(main_after_branch_param_mode)
+        self.daughter_branch_param_mode = self._normalize_post_branch_param_mode(daughter_branch_param_mode)
+        self.main_after_branch_scale = self.main_after_branch_diam_scale
+        self.daughter_branch_scale = self.daughter_branch_diam_scale
         self.main_after_branch_fiber_diameter = (
             None if main_after_branch_fiber_diameter is None else float(main_after_branch_fiber_diameter)
         )
@@ -380,16 +390,16 @@ class MRGaxon:
         # (опционально) полезно знать фактический шаг ветвления в мкм после округления
         self.branch_every_um_effective = self.nodes_dist * self.mrg_params['Lstep']
 
-        # Готовим целевые пост-branch параметры один раз, чтобы дальше build_axon был простым.
-        self.main_after_branch_params = self._build_branch_target_params(
+        # Готовим целевые post-branch параметры один раз, чтобы дальше build_axon был простым.
+        self.main_after_branch_params = self._build_post_branch_params(
+            diam_scale=self.main_after_branch_diam_scale,
+            param_mode=self.main_after_branch_param_mode,
             target_fiber_diameter=self.main_after_branch_fiber_diameter,
-            fallback_scale=self.main_after_branch_scale,
         )
-        if self.preserve_main_trunk_lstep:
-            self.main_after_branch_params = self._with_preserved_main_trunk_lstep(self.main_after_branch_params)
-        self.daughter_branch_params = self._build_branch_target_params(
+        self.daughter_branch_params = self._build_post_branch_params(
+            diam_scale=self.daughter_branch_diam_scale,
+            param_mode=self.daughter_branch_param_mode,
             target_fiber_diameter=self.daughter_branch_fiber_diameter,
-            fallback_scale=self.daughter_branch_scale,
         )
         self.branch_node_params = self._build_scaled_target_params(self.branch_node_scale)
 
@@ -472,39 +482,63 @@ class MRGaxon:
         """Продольное сопротивление периаксонального пространства."""
         return (self.rho_a*0.01)/(math.pi*(((inner_d_um/2+gap_um)**2) - (inner_d_um/2)**2))
 
-    def _build_branch_target_params(self, *, target_fiber_diameter, fallback_scale: float):
-        """Параметры участка после ветвления.
+    @staticmethod
+    def _normalize_post_branch_param_mode(param_mode: str) -> str:
+        mode = str(param_mode)
+        if mode not in {"scaled_radial", "ascent_full"}:
+            raise ValueError(
+                f"Unknown post-branch param_mode={mode!r}. Use 'scaled_radial' or 'ascent_full'."
+            )
+        return mode
 
-        Если задан реальный диаметр пост-branch волокна, берём полный набор параметров
-        через MRG/ASCENT interpolation. Это научно лучше, чем простое масштабирование
-        только диаметров. Если реальный диаметр не задан, используем старый подход со scale.
-        """
+    def _build_post_branch_params(
+        self,
+        *,
+        diam_scale: float,
+        param_mode: str,
+        target_fiber_diameter=None,
+    ) -> dict:
+        """Строит параметры участка после ветвления."""
         if target_fiber_diameter is not None:
             return self._get_mrg_params(float(target_fiber_diameter))
-        return self._build_scaled_target_params(float(fallback_scale))
+
+        scale = float(diam_scale)
+        mode = self._normalize_post_branch_param_mode(param_mode)
+        if mode == "ascent_full":
+            return self._get_mrg_params(float(self.fiber_diameter) * scale)
+        if mode == "scaled_radial":
+            return self._build_scaled_radial_params(scale)
+        raise ValueError(f"Unknown post-branch param_mode={mode!r}")
+
+    def _build_scaled_radial_params(self, diam_scale: float) -> dict:
+        """Старая логика локального сужения без изменения продольной MRG-сетки."""
+        scale = float(diam_scale)
+        base = dict(self.mrg_params)
+        scaled = dict(base)
+
+        scaled['fiberD'] = float(base['fiberD']) * scale
+        scaled['axonD'] = float(base['axonD']) * scale
+        scaled['nodeD'] = float(base['nodeD']) * scale
+        scaled['paraD1'] = float(base['paraD1']) * scale
+        scaled['paraD2'] = float(base['paraD2']) * scale
+
+        scaled['paral1'] = float(base['paral1'])
+        scaled['paral2'] = float(base['paral2'])
+        scaled['interL'] = float(base['interL'])
+        scaled['Lstep'] = float(base['Lstep'])
+        scaled['nl'] = int(base['nl'])
+
+        scaled['rpn0'] = self._rin_peri(scaled['nodeD'], self.space_p1)
+        scaled['rpn1'] = self._rin_peri(scaled['paraD1'], self.space_p1)
+        scaled['rpn2'] = self._rin_peri(scaled['paraD2'], self.space_p2)
+        scaled['rpx'] = self._rin_peri(scaled['axonD'], self.space_i)
+        return scaled
 
     def _build_scaled_target_params(self, scale: float):
         # Scale трактуем как масштаб fiber diameter относительно материнского аксона.
         # Затем получаем полный набор параметров для нового диаметра, а не просто умножаем diam.
         target_fiber_diameter = float(self.fiber_diameter) * float(scale)
         return self._get_mrg_params(target_fiber_diameter)
-
-    def _with_preserved_main_trunk_lstep(self, params: dict):
-        # Для main continuation сохраняем физическую продольную сетку родительского ствола.
-        # Диаметры/канальные параметры могут меняться, но node-to-node spacing остаётся parent-like.
-        preserved_lstep = float(self.mrg_params['Lstep'])
-        fixed_length = float(self.nodelength) + 2.0 * float(params['paral1']) + 2.0 * float(params['paral2'])
-        interL = (preserved_lstep - fixed_length) / 6.0
-        if interL <= 0.0:
-            raise ValueError(
-                f"preserve_main_trunk_lstep produced non-positive interL={interL} for fiberD={params.get('fiberD')}"
-            )
-        patched = dict(params)
-        patched['interL'] = float(interL)
-        patched['Lstep'] = float(preserved_lstep)
-        if 'delta_z' in patched:
-            patched['delta_z'] = float(preserved_lstep)
-        return patched
 
     def _params_for_branch_step(self, *, target_params: dict, transition_nodes: int, step_index_from_branch: int):
         """Простая branch transition zone.
@@ -2531,8 +2565,10 @@ class MRGaxon:
         print(f"Расстояние между ветвлениями: {self.nodes_dist} сегментов")
         print(f"Масштаб диаметра: {self.diam_scale}")
         print(f"Branch-node scale: {self.branch_node_scale}")
-        print(f"Main-after-branch scale: {self.main_after_branch_scale}")
-        print(f"Daughter-branch scale: {self.daughter_branch_scale}")
+        print(f"Main-after-branch diam scale: {self.main_after_branch_diam_scale}")
+        print(f"Daughter-branch diam scale: {self.daughter_branch_diam_scale}")
+        print(f"Main-after-branch param mode: {self.main_after_branch_param_mode}")
+        print(f"Daughter-branch param mode: {self.daughter_branch_param_mode}")
         print(f"Main transition nodes: {self.main_transition_nodes}")
         print(f"Daughter transition nodes: {self.daughter_transition_nodes}")
         print(f"Шаг ветвления (запрошенный): {self.branch_every_um} мкм")
@@ -2852,6 +2888,10 @@ class TwoSensoryAxonsPrescott:
         branch_every_um_B=None,
         # Общие
         diam_scale: float = 0.6,
+        main_after_branch_diam_scale: float = 1.0,
+        daughter_branch_diam_scale: float = 0.6,
+        main_after_branch_param_mode: str = "scaled_radial",
+        daughter_branch_param_mode: str = "ascent_full",
         branch_topology_mode_A: str = 'node',
         branch_topology_mode_B: str = 'node',
         branch_connector_length_um: float = 1.0,
@@ -2907,6 +2947,10 @@ class TwoSensoryAxonsPrescott:
             branch_sequence_nodes=branch_sequence_nodes_A,
             branch_every_um=branch_every_um_A,
             diam_scale=diam_scale,
+            main_after_branch_diam_scale=main_after_branch_diam_scale,
+            daughter_branch_diam_scale=daughter_branch_diam_scale,
+            main_after_branch_param_mode=main_after_branch_param_mode,
+            daughter_branch_param_mode=daughter_branch_param_mode,
             branch_topology_mode=branch_topology_mode_A,
             branch_connector_length_um=branch_connector_length_um,
             branch_connector_diam_scale=branch_connector_diam_scale,
@@ -2927,6 +2971,10 @@ class TwoSensoryAxonsPrescott:
             branch_sequence_nodes=branch_sequence_nodes_B,
             branch_every_um=branch_every_um_B,
             diam_scale=diam_scale,
+            main_after_branch_diam_scale=main_after_branch_diam_scale,
+            daughter_branch_diam_scale=daughter_branch_diam_scale,
+            main_after_branch_param_mode=main_after_branch_param_mode,
+            daughter_branch_param_mode=daughter_branch_param_mode,
             branch_topology_mode=branch_topology_mode_B,
             branch_connector_length_um=branch_connector_length_um,
             branch_connector_diam_scale=branch_connector_diam_scale,
