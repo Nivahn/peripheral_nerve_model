@@ -3062,9 +3062,34 @@ class TwoSensoryAxonsPrescott:
         return EphapticSpec(first, second, rg_dimless)
 
     def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
+        self._pairing_points_A = self.axonA.collect_main_path_pairing_points()
+        self._pairing_points_B = self.axonB.collect_main_path_pairing_points()
+
         if abs(float(self._offsetB_um)) < 1e-12:
-            return self._spec_aligned_nodes()
-        return self._spec_misaligned_node_stin()
+            # Aligned: keep like-with-like links. This mirrors the node/compartment
+            # alignment in Abdollahi/Prescott and preserves the previous aligned case.
+            pairs = []
+            by_key_b: dict[str, list[PairingPoint]] = {}
+            for point_b in self._pairing_points_B:
+                by_key_b.setdefault(str(point_b.pair_key), []).append(point_b)
+            for point_a in self._pairing_points_A:
+                candidates = by_key_b.get(str(point_a.pair_key), [])
+                if not candidates:
+                    continue
+                best_i = min(range(len(candidates)), key=lambda i: abs(float(candidates[i].x_um) - float(point_a.x_um)))
+                pairs.append((point_a, candidates.pop(best_i)))
+        else:
+            # Misaligned: nodes are no longer node-to-node. Pair by real global X so a
+            # node can couple to a nearby internodal compartment, as in Abdollahi/Prescott.
+            pairs = pair_points_monotonic_nearest(self._pairing_points_A, self._pairing_points_B)
+        self._pairing_pairs = list(pairs)
+
+        first = [pa.name for pa, _ in pairs]
+        second = [pb.name for _, pb in pairs]
+        centers = [float(pa.x_um) for pa, _ in pairs]
+        s_um = float(self.fiber_diameter_um)
+        rg_dimless = _compute_rg_dimless_from_centers(np.asarray(centers, dtype=float), s_um)
+        return EphapticSpec(first, second, rg_dimless)
 
     def _spec_boundary_for_axon(self, axon: MRGaxon, boundary: Optional[BoundaryCable]) -> EphapticSpec:
         """Карта node_i <-> boundary.section_j по продольной координате (как у Prescott)."""
