@@ -68,10 +68,10 @@ STIM = {
 }
 
 MODES = [
-    ("aligned", {"aligned": True, "enable_ephaptic": True, "misalignment_fraction": None}),
-    ("misaligned", {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": None}),
-    ("misaligned_0.25", {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.25}),
-    ("no_ec", {"aligned": True, "enable_ephaptic": False, "misalignment_fraction": None}),
+    "aligned",
+    "misaligned_0.5",
+    "misaligned_0.25",
+    "no_EC",
 ]
 
 COLUMNS = [
@@ -96,8 +96,8 @@ def spike_times_ms(t_ms: np.ndarray, v_mV: np.ndarray) -> np.ndarray:
     return t_ms[mask0 + peaks]
 
 
-def run_mode(mode_name: str, mode_kwargs: dict) -> dict:
-    model = TwoSensoryAxonsPrescott(**MODEL_BASE, **mode_kwargs)
+def run_mode(mode_name: str) -> dict:
+    model = TwoSensoryAxonsPrescott(**MODEL_BASE, mode_descriptor=mode_name)
     model.set_stimulation_for_axons(**STIM)
     model.run_simulation_two_axons(
         h5_path=None,
@@ -123,7 +123,7 @@ def run_mode(mode_name: str, mode_kwargs: dict) -> dict:
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    results = [run_mode(mode_name, mode_kwargs) for mode_name, mode_kwargs in MODES]
+    results = [run_mode(mode_name) for mode_name in MODES]
 
     fig, axes = plt.subplots(len(MODES), len(COLUMNS), figsize=(13.0, 8.5), dpi=180, sharex=True, sharey=True)
     colors = {"before_branch": "#1d4ed8", "after_branch_main": "#dc2626"}

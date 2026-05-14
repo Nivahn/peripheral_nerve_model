@@ -15,7 +15,7 @@ if str(ROOT_DIR) not in sys.path:
 from MRG_lib import TwoSensoryAxonsPrescott  # noqa: E402
 
 
-MODES = ("aligned", "misaligned", "misaligned_0.25", "no_ephaptic_coupling")
+MODES = ("aligned", "misaligned_0.5", "misaligned_0.25", "no_EC")
 
 
 def collect_pairing_rows(*, fiber_diameter_um: float, edge_dist_um: float, scenario: str, mode: str) -> list[dict]:
@@ -28,12 +28,6 @@ def collect_pairing_rows(*, fiber_diameter_um: float, edge_dist_um: float, scena
         branches = 4
         nodes_dist = 8
 
-    mode_kwargs = {
-        "aligned": {"aligned": True, "enable_ephaptic": True, "misalignment_fraction": None},
-        "misaligned": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": None},
-        "misaligned_0.25": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.25},
-        "no_ephaptic_coupling": {"aligned": True, "enable_ephaptic": False, "misalignment_fraction": None},
-    }[mode]
     model = TwoSensoryAxonsPrescott(
         fiber_diameter_um=float(fiber_diameter_um),
         edge_dist_um=float(edge_dist_um),
@@ -46,7 +40,7 @@ def collect_pairing_rows(*, fiber_diameter_um: float, edge_dist_um: float, scena
         nodes_dist_B=nodes_dist,
         dt_ms=0.01,
         h_stop=10.0,
-        **mode_kwargs,
+        mode_descriptor=mode,
     )
     rows = model.get_axon_axon_pairing_rows()
     for row in rows:

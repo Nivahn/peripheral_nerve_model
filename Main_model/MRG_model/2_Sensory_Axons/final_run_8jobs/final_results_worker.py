@@ -39,10 +39,10 @@ AXON_BRANCH_LABELS = [
 ]
 
 MODE_CONFIGS = {
-    "aligned": {"aligned": True, "enable_ephaptic": True, "misalignment_fraction": None, "filename_tag": "aligned"},
-    "misaligned": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": None, "filename_tag": "misaligned"},
-    "misaligned_0.25": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.25, "filename_tag": "misaligned_0.25"},
-    "no_ephaptic_coupling": {"aligned": True, "enable_ephaptic": False, "misalignment_fraction": None, "filename_tag": "noec"},
+    "aligned": {"filename_tag": "aligned"},
+    "misaligned_0.5": {"filename_tag": "misaligned_0.5"},
+    "misaligned_0.25": {"filename_tag": "misaligned_0.25"},
+    "no_EC": {"filename_tag": "no_EC"},
 }
 
 
@@ -269,13 +269,10 @@ def build_h5_name(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> str
 
 
 def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSensoryAxonsPrescott:
-    mode = MODE_CONFIGS[mode_name]
     return TwoSensoryAxonsPrescott(
         fiber_diameter_um=float(cfg.fiber_diameter_um),
         edge_dist_um=float(edge_dist_um),
-        aligned=bool(mode["aligned"]),
-        enable_ephaptic=bool(mode["enable_ephaptic"]),
-        misalignment_fraction=mode["misalignment_fraction"],
+        mode_descriptor=mode_name,
         ec_strength_scale=1.0,
         branch_topology_mode_A=cfg.branch_topology_mode,
         branch_topology_mode_B=cfg.branch_topology_mode,

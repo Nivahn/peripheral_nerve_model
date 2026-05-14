@@ -49,10 +49,10 @@ MODEL_BASE = {
 }
 
 MODES = [
-    ("aligned", {"aligned": True, "enable_ephaptic": True, "misalignment_fraction": None}),
-    ("misaligned", {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": None}),
-    ("misaligned_0.25", {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.25}),
-    ("no_ec", {"aligned": True, "enable_ephaptic": False, "misalignment_fraction": None}),
+    "aligned",
+    "misaligned_0.5",
+    "misaligned_0.25",
+    "no_EC",
 ]
 
 AXON_B_LABELS = ["before_branch", "branch_point", "after_branch_main"]
@@ -76,9 +76,9 @@ def label_index(labels: list[str], label: str) -> int:
         raise RuntimeError(f"Missing recording label {label!r}; available labels: {labels}") from exc
 
 
-def run_mode(mode_name: str, mode_kwargs: dict) -> dict:
+def run_mode(mode_name: str) -> dict:
     t_step, i_step = step_waveform()
-    model = TwoSensoryAxonsPrescott(**MODEL_BASE, **mode_kwargs)
+    model = TwoSensoryAxonsPrescott(**MODEL_BASE, mode_descriptor=mode_name)
     model.set_stimulation_for_axons_independent(
         stim_A=True,
         stim_B=True,
@@ -132,8 +132,8 @@ def response_metrics(t_ms: np.ndarray, y: np.ndarray) -> dict:
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    results = [run_mode(mode_name, mode_kwargs) for mode_name, mode_kwargs in MODES]
-    no_ec = next(result for result in results if result["mode"] == "no_ec")
+    results = [run_mode(mode_name) for mode_name in MODES]
+    no_ec = next(result for result in results if result["mode"] == "no_EC")
     no_ec_t = np.asarray(no_ec["model"].axonB.time_array, dtype=float)
     no_ec_labels = list(getattr(no_ec["model"].axonB, "recording_labels", []) or [])
     no_ec_b = {
@@ -174,7 +174,7 @@ def main() -> None:
             metrics = response_metrics(t_ms, y)
             ax.plot(t_ms, y - metrics["baseline_mV"], color="#2563eb", lw=1.0)
             ax.axhline(0.0, color="black", lw=0.6, alpha=0.5)
-            ax.set_title(f"B {label}\nmode-no_ec peak={metrics['peak_delta_mV']:.4g} mV")
+            ax.set_title(f"B {label}\nmode-no_EC peak={metrics['peak_delta_mV']:.4g} mV")
             ax.grid(True, alpha=0.25)
             rows.append(
                 {
@@ -185,7 +185,7 @@ def main() -> None:
                     "step_windows_ms": ";".join(f"{a}-{b}" for a, b in STEP_WINDOWS_MS),
                     "offset_B_um": float(getattr(model, "_offsetB_um", np.nan)),
                     "n_axon_axon_pairs": 0 if model.spec_AB is None else int(len(model.spec_AB.sec_names_first)),
-                    "trace_transform": "mode_minus_no_ec",
+                    "trace_transform": "mode_minus_no_EC",
                     **metrics,
                 }
             )

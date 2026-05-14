@@ -13,7 +13,7 @@ EXPECTED_TOPOLOGIES = ["one_node_branching", "connector_branching"]
 EXPECTED_DIAMETERS = [5.7, 2.5]
 EXPECTED_SCENARIOS = ["one_branch", "multiple_branches"]
 EXPECTED_DISTANCES = [0.1, 0.5, 1.0]
-EXPECTED_MODES = ["aligned", "misaligned", "misaligned_0.25", "no_ephaptic_coupling"]
+EXPECTED_MODES = ["aligned", "misaligned_0.5", "misaligned_0.25", "no_EC"]
 
 
 def prefix_for(topology: str, scenario: str) -> str:
@@ -25,9 +25,9 @@ def prefix_for(topology: str, scenario: str) -> str:
 def mode_tag(mode: str) -> str:
     return {
         "aligned": "aligned",
-        "misaligned": "misaligned",
+        "misaligned_0.5": "misaligned_0.5",
         "misaligned_0.25": "misaligned_0.25",
-        "no_ephaptic_coupling": "noec",
+        "no_EC": "no_EC",
     }[mode]
 
 

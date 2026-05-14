@@ -2835,6 +2835,7 @@ class TwoSensoryAxonsPrescott:
         edge_dist_um: float = 0.1,
         aligned: bool = True,
         enable_ephaptic: bool = True,
+        mode_descriptor: Optional[str] = None,
         # Параметры аксона A
         parent_axon_nodes_A: int = 42,
         branch_nodes_A: int = 21,
@@ -2870,8 +2871,14 @@ class TwoSensoryAxonsPrescott:
     ):
         self.fiber_diameter_um = float(fiber_diameter_um)
         self.edge_dist_um = float(edge_dist_um)
-        self.aligned = bool(aligned)
-        self.enable_ephaptic = bool(enable_ephaptic)
+        self.mode_descriptor = self._resolve_mode_descriptor(
+            mode_descriptor=mode_descriptor,
+            aligned=aligned,
+            enable_ephaptic=enable_ephaptic,
+            misalignment_fraction=misalignment_fraction,
+        )
+        self.aligned = self.mode_descriptor in ("aligned", "no_EC")
+        self.enable_ephaptic = self.mode_descriptor != "no_EC"
 
         self.XG1 = float(XG1)
         self.rho_endoneurium_ohm_cm = float(rho_endoneurium_ohm_cm)
@@ -2879,7 +2886,12 @@ class TwoSensoryAxonsPrescott:
         self.perineurium_thickness_cm = float(perineurium_thickness_cm)
         self.boundary_full_cable = bool(boundary_full_cable)
         self.misalignment_um = misalignment_um
-        self.misalignment_fraction = misalignment_fraction
+        self.misalignment_fraction = {
+            "aligned": None,
+            "misaligned_0.5": 0.5,
+            "misaligned_0.25": 0.25,
+            "no_EC": None,
+        }[self.mode_descriptor]
         self.ec_strength_scale = float(ec_strength_scale)
         self._pairing_points_A = []
         self._pairing_points_B = []
@@ -2938,13 +2950,15 @@ class TwoSensoryAxonsPrescott:
         self.axonB.recompute_trunk_geometry_for_coupling()
 
         Lstep = float(self.axonA.mrg_params.get('Lstep', 1.0))
-        if misalignment_fraction is not None:
-            offB = float(misalignment_fraction) * Lstep
-        elif self.aligned:
+        if self.mode_descriptor == "aligned" or self.mode_descriptor == "no_EC":
             offB = 0.0
-        else:
+        elif self.mode_descriptor == "misaligned_0.5":
             # Prescott misaligned: полушаг по продольной оси.
             offB = float(misalignment_um) if misalignment_um is not None else 0.5 * Lstep
+        elif self.mode_descriptor == "misaligned_0.25":
+            offB = 0.25 * Lstep
+        else:
+            raise ValueError(f"Unknown mode_descriptor={self.mode_descriptor!r}")
         self.axonA.apply_longitudinal_offset(0.0)
         self.axonB.apply_longitudinal_offset(offB)
         self._offsetA_um = 0.0
@@ -2966,6 +2980,30 @@ class TwoSensoryAxonsPrescott:
         self._hoc_keepalive = []
 
         self._build_all_couplers()
+
+    @staticmethod
+    def _resolve_mode_descriptor(
+        *,
+        mode_descriptor: Optional[str],
+        aligned: bool,
+        enable_ephaptic: bool,
+        misalignment_fraction: Optional[float],
+    ) -> str:
+        if mode_descriptor is not None:
+            mode = str(mode_descriptor)
+            if mode not in {"aligned", "misaligned_0.5", "misaligned_0.25", "no_EC"}:
+                raise ValueError(
+                    "mode_descriptor must be one of: aligned, misaligned_0.5, misaligned_0.25, no_EC"
+                )
+            return mode
+
+        if not bool(enable_ephaptic):
+            return "no_EC"
+        if bool(aligned):
+            return "aligned"
+        if misalignment_fraction is not None and abs(float(misalignment_fraction) - 0.25) < 1e-12:
+            return "misaligned_0.25"
+        return "misaligned_0.5"
 
     # --------------------------- построение карт связи ---------------------------
     def _spec_aligned_nodes(self) -> EphapticSpec:
@@ -3189,9 +3227,14 @@ class TwoSensoryAxonsPrescott:
     def _build_all_couplers(self):
         # 5.1 axon-axon coupling (эндoневрий) -- можно отключить для сравнения
         if self.enable_ephaptic:
-            # Server baseline: all EC modes use the same branch-aware unit pairing.
-            # aligned/misaligned differ only through self._offsetB_um.
-            spec = self._spec_offset_nearest_main_path_sections()
+            if self.mode_descriptor == "aligned":
+                spec = self._spec_aligned_nodes()
+            elif self.mode_descriptor == "misaligned_0.5":
+                spec = self._spec_misaligned_node_stin()
+            elif self.mode_descriptor == "misaligned_0.25":
+                spec = self._spec_misaligned_fractional_node_section()
+            else:
+                raise ValueError(f"Unsupported EC mode_descriptor={self.mode_descriptor!r}")
 
             # сохраним для графиков анатомии/связи
             self.spec_AB = spec
