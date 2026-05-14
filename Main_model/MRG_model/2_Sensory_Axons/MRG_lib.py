@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from misalignment_pairing import PairingPoint, PairingUnit, pair_units_monotonic_nearest_by_node, flatten_paired_units
+from misalignment_pairing import PairingPoint, PairingUnit, pair_points_monotonic_nearest
 from neuron_loader import load_neuron_h
 
 h = load_neuron_h()
@@ -3062,15 +3062,26 @@ class TwoSensoryAxonsPrescott:
         return EphapticSpec(first, second, rg_dimless)
 
     def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
-        # Arbitrary misalignment: сначала матчим main-trunk units по узлам,
-        # потом внутри matched units связываем однотипные секции fixed-phase образом.
-        unitsA = self.axonA.collect_main_path_pairing_units()
-        unitsB = self.axonB.collect_main_path_pairing_units()
-        unit_pairs = pair_units_monotonic_nearest_by_node(unitsA, unitsB, target_dx_um=float(self._offsetB_um))
-        pairs = flatten_paired_units(unit_pairs)
-
         self._pairing_points_A = self.axonA.collect_main_path_pairing_points()
         self._pairing_points_B = self.axonB.collect_main_path_pairing_points()
+
+        if abs(float(self._offsetB_um)) < 1e-12:
+            # Aligned: keep like-with-like links. This mirrors the node/compartment
+            # alignment in Abdollahi/Prescott and preserves the previous aligned case.
+            pairs = []
+            by_key_b: dict[str, list[PairingPoint]] = {}
+            for point_b in self._pairing_points_B:
+                by_key_b.setdefault(str(point_b.pair_key), []).append(point_b)
+            for point_a in self._pairing_points_A:
+                candidates = by_key_b.get(str(point_a.pair_key), [])
+                if not candidates:
+                    continue
+                best_i = min(range(len(candidates)), key=lambda i: abs(float(candidates[i].x_um) - float(point_a.x_um)))
+                pairs.append((point_a, candidates.pop(best_i)))
+        else:
+            # Misaligned: nodes are no longer node-to-node. Pair by real global X so a
+            # node can couple to a nearby internodal compartment, as in Abdollahi/Prescott.
+            pairs = pair_points_monotonic_nearest(self._pairing_points_A, self._pairing_points_B)
         self._pairing_pairs = list(pairs)
 
         first = [pa.name for pa, _ in pairs]
