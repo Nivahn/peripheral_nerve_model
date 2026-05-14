@@ -278,7 +278,6 @@ def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSe
         branch_topology_mode_B=cfg.branch_topology_mode,
         branch_connector_length_um=1.0,
         branch_connector_diam_scale=1.0,
-        diam_scale=0.6,
         dt_ms=float(cfg.dt_ms),
         v_init=-80.0,
         h_stop=float(cfg.h_stop_ms),

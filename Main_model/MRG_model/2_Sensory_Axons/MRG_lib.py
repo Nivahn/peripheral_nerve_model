@@ -221,7 +221,6 @@ class MRGaxon:
              nodes_dist=10,
              branch_sequence_nodes=None,
              branch_every_um=None,
-             diam_scale=0.6,
              branch_node_scale=1.0,
              branch_topology_mode="node",
              main_after_branch_diam_scale=1.0,
@@ -264,7 +263,6 @@ class MRGaxon:
         self.branch_sequence_nodes = None if branch_sequence_nodes is None else [int(x) for x in branch_sequence_nodes]
         if self.branch_sequence_nodes is not None:
             self.branches_num = int(len(self.branch_sequence_nodes))
-        self.diam_scale = diam_scale
         self.branch_node_scale = float(branch_node_scale)
         self.branch_topology_mode = str(branch_topology_mode)
 
@@ -941,24 +939,6 @@ class MRGaxon:
 
         return nodes
 
-    def scaled_params(self, params, diam_scale=0.6):
-        """Сужение диаметров после ветвления."""
-        scaled = params.copy()
-
-        scaled['fiberD'] *= diam_scale
-        scaled['axonD']  *= diam_scale
-        scaled['nodeD']  *= diam_scale
-        scaled['paraD1'] *= diam_scale
-        scaled['paraD2'] *= diam_scale
-
-        scaled['rpn0'] = self._rin_peri(scaled['nodeD'],  self.space_p1)
-        scaled['rpn1'] = self._rin_peri(scaled['paraD1'], self.space_p1)
-        scaled['rpn2'] = self._rin_peri(scaled['paraD2'], self.space_p2)
-        scaled['rpx']  = self._rin_peri(scaled['axonD'],  self.space_i)
-
-        return scaled
-
-
     def build_axon(self):
 
         terminals = []
@@ -1098,9 +1078,6 @@ class MRGaxon:
                     self.before_branch_id.append(_seg05(self.main_axon[-4]))
                 else:
                     self.before_branch_id.append(_seg05(branch_node))
-
-                #P_branch = self.scaled_params(params, self.diam_scale)
-                #term_chain = self.build_chain(self.branch_nodes, P_branch)
 
                 P_main_target = self.main_after_branch_params
                 P_daughter_target = self.daughter_branch_params
@@ -2563,7 +2540,6 @@ class MRGaxon:
         print(f"Узлов в ветви: {self.branch_nodes}")
         print(f"Количество ветвей: {self.branches_num}")
         print(f"Расстояние между ветвлениями: {self.nodes_dist} сегментов")
-        print(f"Масштаб диаметра: {self.diam_scale}")
         print(f"Branch-node scale: {self.branch_node_scale}")
         print(f"Main-after-branch diam scale: {self.main_after_branch_diam_scale}")
         print(f"Daughter-branch diam scale: {self.daughter_branch_diam_scale}")
@@ -2887,7 +2863,6 @@ class TwoSensoryAxonsPrescott:
         branch_sequence_nodes_B=None,
         branch_every_um_B=None,
         # Общие
-        diam_scale: float = 0.6,
         main_after_branch_diam_scale: float = 1.0,
         daughter_branch_diam_scale: float = 0.6,
         main_after_branch_param_mode: str = "scaled_radial",
@@ -2946,7 +2921,6 @@ class TwoSensoryAxonsPrescott:
             nodes_dist=nodes_dist_A,
             branch_sequence_nodes=branch_sequence_nodes_A,
             branch_every_um=branch_every_um_A,
-            diam_scale=diam_scale,
             main_after_branch_diam_scale=main_after_branch_diam_scale,
             daughter_branch_diam_scale=daughter_branch_diam_scale,
             main_after_branch_param_mode=main_after_branch_param_mode,
@@ -2970,7 +2944,6 @@ class TwoSensoryAxonsPrescott:
             nodes_dist=nodes_dist_B,
             branch_sequence_nodes=branch_sequence_nodes_B,
             branch_every_um=branch_every_um_B,
-            diam_scale=diam_scale,
             main_after_branch_diam_scale=main_after_branch_diam_scale,
             daughter_branch_diam_scale=daughter_branch_diam_scale,
             main_after_branch_param_mode=main_after_branch_param_mode,
