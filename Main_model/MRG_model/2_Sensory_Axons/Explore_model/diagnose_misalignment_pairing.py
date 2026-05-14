@@ -15,14 +15,14 @@ if str(ROOT_DIR) not in sys.path:
 from MRG_lib import TwoSensoryAxonsPrescott  # noqa: E402
 
 
-MODES = ("aligned", "misaligned_0.25", "misaligned_0.5", "no_ephaptic_coupling")
+MODES = ("aligned", "misaligned", "misaligned_0.25", "no_ephaptic_coupling")
 
 
 def collect_pairing_rows(*, fiber_diameter_um: float, edge_dist_um: float, scenario: str, mode: str) -> list[dict]:
     if scenario == "one_branch":
         parent_nodes = 17
         branches = 1
-        nodes_dist = 8
+        nodes_dist = 10
     else:
         parent_nodes = 29
         branches = 4
@@ -30,8 +30,8 @@ def collect_pairing_rows(*, fiber_diameter_um: float, edge_dist_um: float, scena
 
     mode_kwargs = {
         "aligned": {"aligned": True, "enable_ephaptic": True, "misalignment_fraction": None},
+        "misaligned": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": None},
         "misaligned_0.25": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.25},
-        "misaligned_0.5": {"aligned": False, "enable_ephaptic": True, "misalignment_fraction": 0.5},
         "no_ephaptic_coupling": {"aligned": True, "enable_ephaptic": False, "misalignment_fraction": None},
     }[mode]
     model = TwoSensoryAxonsPrescott(

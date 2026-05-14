@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from misalignment_pairing import PairingPoint, PairingUnit, pair_points_monotonic_nearest
+from misalignment_pairing import PairingPoint, PairingUnit, pair_units_monotonic_nearest_by_node, flatten_paired_units
 from neuron_loader import load_neuron_h
 
 h = load_neuron_h()
@@ -29,13 +29,19 @@ _NRNMECH_DLL_PATH: Optional[Path] = None
 
 def _candidate_mech_paths(base_dir: Path) -> list[Path]:
     """Returns possible compiled NEURON mechanism library paths for Windows/Linux."""
-    return [
+    windows_candidates = [
         base_dir / "nrnmech.dll",
+    ]
+    linux_candidates = [
         base_dir / "x86_64" / "libnrnmech.so",
         base_dir / "x86_64" / ".libs" / "libnrnmech.so",
         base_dir / "aarch64" / "libnrnmech.so",
         base_dir / "aarch64" / ".libs" / "libnrnmech.so",
     ]
+
+    if os.name == "nt":
+        return windows_candidates + linux_candidates
+    return linux_candidates + windows_candidates
 
 
 def load_nrnmech_dll_once() -> Path:
@@ -125,42 +131,60 @@ MRG_TABLE = {
 }
 
 
+_MRG_PARAMETER_TABLE_CACHE: Optional[pd.DataFrame] = None
+
+
+def _mrg_parameter_table_path() -> Path:
+    return Path(__file__).resolve().parent / "data" / "parameter_tables" / "mrg_parameters_1p00_to_16p00_step_0p05.csv"
+
+
+def load_mrg_parameter_table() -> pd.DataFrame:
+    global _MRG_PARAMETER_TABLE_CACHE
+    if _MRG_PARAMETER_TABLE_CACHE is None:
+        table_path = _mrg_parameter_table_path()
+        if not table_path.exists():
+            raise FileNotFoundError(
+                f"MRG parameter table not found: {table_path}. Run build_mrg_parameter_table.py once and commit the CSV."
+            )
+        _MRG_PARAMETER_TABLE_CACHE = pd.read_csv(table_path)
+        _MRG_PARAMETER_TABLE_CACHE["fiber_diameter_um"] = _MRG_PARAMETER_TABLE_CACHE["fiber_diameter_um"].astype(float)
+    return _MRG_PARAMETER_TABLE_CACHE.copy()
+
+
+def lookup_mrg_parameter_row(fiber_diameter_um: float) -> dict:
+    d = float(fiber_diameter_um)
+    table = load_mrg_parameter_table()
+    idx = int((table["fiber_diameter_um"] - d).abs().idxmin())
+    row = dict(table.loc[idx].to_dict())
+    row["fiber_diameter_um_requested"] = d
+    row["fiber_diameter_um"] = float(row["fiber_diameter_um"])
+    row["fiber_diameter_um_matched"] = float(row["fiber_diameter_um"])
+    return row
+
+
+def estimate_mrg_lstep_um(fiber_diameter_um: float) -> float:
+    row = lookup_mrg_parameter_row(float(fiber_diameter_um))
+    return float(row["Lstep"])
+
+
 def _small_mrg_params_from_ascent(fiberD: float):
-    """ASCENT SMALL_MRG_INTERPOLATION geometry for small myelinated fibers.
-
-    ASCENT documents this mode for 1.011-16 um and uses adjusted nodal
-    conductances for small diameters to avoid multiple spikes per pulse.
-    We use it here only as an extension below the original discrete MRG table.
-    """
-    d = float(fiberD)
-    if d < 1.011 or d >= 5.7:
-        raise ValueError("ASCENT small MRG interpolation is intended for 1.011 <= diameter < 5.7 um")
-
-    g_ratio = 0.020 * (d - 2.39) + 0.55
-    axon_d = g_ratio * d
-    node_to_axon_ratio = -0.011 * (axon_d - 7.15) + 0.40
-    node_d = node_to_axon_ratio * axon_d
-
-    deltax = -3.22 * d * d + 148.0 * d - 128.0
-    paralength2 = -0.171 * d * d + 6.48 * d - 0.935
-    nl = int(round(math.exp(0.5 * (axon_d - 1.75) + 3.2)))
-
-    return {
-        'fiberD': d,
-        'axonD': axon_d,
-        'nodeD': node_d,
-        'paraD1': node_d,
-        'paraD2': axon_d,
-        'paral1': MRGaxon.paralength1,
-        'paral2': paralength2,
-        'interL': (deltax - MRGaxon.nodelength - 2 * MRGaxon.paralength1 - 2 * paralength2) / 6.0,
-        'nl': nl,
-        'delta_z': deltax,
-        'node_channel_overrides': {
-            'gnabar': 2.333,
-            'gkbar': 0.116,
-        },
+    """Backward-compatible wrapper around the offline CSV table."""
+    row = lookup_mrg_parameter_row(float(fiberD))
+    if float(row["fiber_diameter_um"]) >= 5.7:
+        raise ValueError("small-MRG wrapper expects matched diameter below 5.7 um")
+    out = {
+        'fiberD': float(row['fiber_diameter_um']),
+        'axonD': float(row['axonD']),
+        'nodeD': float(row['nodeD']),
+        'paraD1': float(row['paraD1']),
+        'paraD2': float(row['paraD2']),
+        'paral1': float(row['paral1']),
+        'paral2': float(row['paral2']),
+        'interL': float(row['interL']),
+        'nl': int(round(float(row['nl']))),
+        'delta_z': float(row['Lstep']),
     }
+    return out
 
 class MRGaxon:
 
@@ -195,6 +219,7 @@ class MRGaxon:
              branch_nodes=21,
              branches_num=2,
              nodes_dist=10,
+             branch_sequence_nodes=None,
              branch_every_um=None,
              diam_scale=0.6,
              branch_node_scale=1.0,
@@ -212,7 +237,6 @@ class MRGaxon:
              dt_ms=0.0005,
              v_init=-80.0,
              h_stop = 1000.0,
-             gnapbar_scale=0.5,
              reset_nrn: bool = True):
 
         # ---------------------------------------------------------------------------------
@@ -234,6 +258,9 @@ class MRGaxon:
         self.branch_nodes = branch_nodes
         self.branches_num = branches_num
         self.nodes_dist = nodes_dist
+        self.branch_sequence_nodes = None if branch_sequence_nodes is None else [int(x) for x in branch_sequence_nodes]
+        if self.branch_sequence_nodes is not None:
+            self.branches_num = int(len(self.branch_sequence_nodes))
         self.diam_scale = diam_scale
         self.branch_node_scale = float(branch_node_scale)
         self.branch_topology_mode = str(branch_topology_mode)
@@ -342,11 +369,8 @@ class MRGaxon:
         # Механизм узла
         self.node_mech = self._pick_node_mech()
 
-        self.gnapbar_scale = gnapbar_scale
-
         # Получение параметров MRG
         self.mrg_params = self._get_mrg_params(fiber_diameter)
-        self.node_channel_overrides = dict(self.mrg_params.get('node_channel_overrides', {}))
 
         self.branch_every_um = branch_every_um
         if self.branch_every_um is not None:
@@ -400,44 +424,29 @@ class MRGaxon:
         raise RuntimeError("Не найден ни 'newaxnode', ни 'axnode' — скомпилируйте .mod файлы.")
 
     def _get_mrg_params(self, fiberD):
-        """Получает полный набор MRG-параметров для заданного диаметра волокна."""
-        d = float(fiberD)
-        if d < 1.011 or d > 16.0:
-            raise ValueError(f"fiberD {fiberD} вне поддержанного диапазона 1.011..16.0 um")
+        """Получает полный набор MRG-параметров из офлайн-CSV таблицы."""
+        row = lookup_mrg_parameter_row(float(fiberD))
+        matched_d = float(row['fiber_diameter_um'])
+        if matched_d < 1.011 or matched_d > 16.0:
+            raise ValueError(f"fiberD {fiberD} matched unsupported diameter {matched_d}")
 
-        if d < 5.7:
-            base = _small_mrg_params_from_ascent(d)
-            base['rpn0'] = self._rin_peri(base['nodeD'], self.space_p1)
-            base['rpn1'] = self._rin_peri(base['paraD1'], self.space_p1)
-            base['rpn2'] = self._rin_peri(base['paraD2'], self.space_p2)
-            base['rpx'] = self._rin_peri(base['axonD'], self.space_i)
-            base['Lstep'] = float(base['delta_z'])
-            return base
-
-        if d in MRG_TABLE:
-            return self._build_large_mrg_params_from_tuple(d, MRG_TABLE[d])
-
-        diameters = sorted(float(x) for x in MRG_TABLE.keys())
-        lo = None
-        hi = None
-        for left, right in zip(diameters[:-1], diameters[1:]):
-            if left <= d <= right:
-                lo = left
-                hi = right
-                break
-        if lo is None or hi is None:
-            raise ValueError(f"fiberD {fiberD} не удалось интерполировать по MRG_TABLE")
-
-        frac = (d - lo) / (hi - lo)
-        lo_vals = MRG_TABLE[lo]
-        hi_vals = MRG_TABLE[hi]
-        interp_vals = []
-        for idx, (vlo, vhi) in enumerate(zip(lo_vals, hi_vals)):
-            val = float(vlo) + frac * (float(vhi) - float(vlo))
-            if idx == 7:
-                val = int(round(val))
-            interp_vals.append(val)
-        return self._build_large_mrg_params_from_tuple(d, tuple(interp_vals))
+        out = {
+            'fiberD': matched_d,
+            'axonD': float(row['axonD']),
+            'nodeD': float(row['nodeD']),
+            'paraD1': float(row['paraD1']),
+            'paraD2': float(row['paraD2']),
+            'paral1': float(row['paral1']),
+            'paral2': float(row['paral2']),
+            'interL': float(row['interL']),
+            'nl': int(round(float(row['nl']))),
+            'rpn0': self._rin_peri(float(row['nodeD']), self.space_p1),
+            'rpn1': self._rin_peri(float(row['paraD1']), self.space_p1),
+            'rpn2': self._rin_peri(float(row['paraD2']), self.space_p2),
+            'rpx': self._rin_peri(float(row['axonD']), self.space_i),
+            'Lstep': float(row['Lstep']),
+        }
+        return out
 
     def _build_large_mrg_params_from_tuple(self, fiberD: float, values: tuple):
         _, axon_d, node_d, para_d1, para_d2, deltax, paralength2, nl = values
@@ -554,7 +563,7 @@ class MRGaxon:
         return xr
 
     # ---------- КОНСТРУКТОРЫ СЕКЦИЙ ----------
-    def _configure_node_section(self, sec, nodeD, nodel, Rpn0, gnabar=3.0, gnapbar=0.005, node_channel_overrides=None):
+    def _configure_node_section(self, sec, nodeD, nodel, Rpn0):
         sec.nseg = 1
         sec.L = nodel
         sec.diam = nodeD
@@ -563,26 +572,9 @@ class MRGaxon:
 
         self._insert_mechanism(sec, self.node_mech)
 
-        overrides = dict(self.node_channel_overrides if node_channel_overrides is None else node_channel_overrides)
-        for seg in sec:
-            if self.node_mech == 'newaxnode':
-                seg.gnabar_newaxnode = float(gnabar)
-                if 'gnabar' in overrides:
-                    seg.gnabar_newaxnode = float(overrides['gnabar'])
-                if 'gkbar' in overrides:
-                    seg.gkbar_newaxnode = float(overrides['gkbar'])
-                seg.gnapbar_newaxnode = float(gnapbar) * float(self.gnapbar_scale)
-                if 'gl' in overrides:
-                    seg.gl_newaxnode = float(overrides['gl'])
-            elif self.node_mech == 'axnode':
-                if hasattr(seg, 'gnabar_axnode') and 'gnabar' in overrides:
-                    seg.gnabar_axnode = float(overrides['gnabar'])
-                if hasattr(seg, 'gkbar_axnode') and 'gkbar' in overrides:
-                    seg.gkbar_axnode = float(overrides['gkbar'])
-
         self._set_extracellular(sec, Rpn0, 1e10, 0.0)
 
-    def make_node(self, nodeD, nodel, Rpn0, gnabar=3.0, gnapbar=0.005, el=-90.0, node_channel_overrides=None):
+    def make_node(self, nodeD, nodel, Rpn0):
 
         s = h.Section(name=f'node_{self._node_id}')
         self._node_id +=1
@@ -591,9 +583,6 @@ class MRGaxon:
             nodeD,
             nodel,
             Rpn0,
-            gnabar=gnabar,
-            gnapbar=gnapbar,
-            node_channel_overrides=node_channel_overrides,
         )
         self.regions["node"].append(s)
         return s
@@ -606,7 +595,6 @@ class MRGaxon:
             params['nodeD'],
             self.nodelength,
             params['rpn0'],
-            node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
         )
 
     def make_branch_connector(self, diam_um: float, length_um: float):
@@ -703,7 +691,6 @@ class MRGaxon:
             params['nodeD'],
             self.nodelength,
             params['rpn0'],
-            node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
         )
 
         # топология
@@ -868,7 +855,6 @@ class MRGaxon:
             P_daughter_target['nodeD'],
             self.nodelength,
             P_daughter_target['rpn0'],
-            node_channel_overrides=P_daughter_target.get('node_channel_overrides', self.node_channel_overrides),
         )
         d0.connect(daughter_conn, 1.0, 0.0)
         term_chain.append(d0)
@@ -899,7 +885,6 @@ class MRGaxon:
             P_main_target['nodeD'],
             self.nodelength,
             P_main_target['rpn0'],
-            node_channel_overrides=P_main_target.get('node_channel_overrides', self.node_channel_overrides),
         )
         node_3.connect(main_conn, 1.0, 0.0)
         self.node_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + P_main_target['Lstep'])
@@ -914,7 +899,6 @@ class MRGaxon:
                 params['nodeD'],
                 self.nodelength,
                 params['rpn0'],
-                node_channel_overrides=params.get('node_channel_overrides', self.node_channel_overrides),
             )
         ]
         for _ in range(n_nodes-1):
@@ -957,7 +941,6 @@ class MRGaxon:
                 self.mrg_params['nodeD'],
                 self.nodelength,
                 self.mrg_params['rpn0'],
-                node_channel_overrides=self.mrg_params.get('node_channel_overrides', self.node_channel_overrides),
             )
         ]
 
@@ -992,6 +975,12 @@ class MRGaxon:
         # ---------------------------------------------------------------------------------
         def _seg05(sec):
             return sec(0.5)
+
+        branch_thresholds = list(self.branch_sequence_nodes) if self.branch_sequence_nodes is not None else None
+        branch_threshold_idx = 0
+        current_branch_threshold = (
+            int(branch_thresholds[0]) if branch_thresholds else int(self.nodes_dist)
+        )
 
         for _ in range(self.parent_axon_nodes - 1):
 
@@ -1048,7 +1037,7 @@ class MRGaxon:
             # print(nodes)
             # Надо высчитать длину типичного шага при append one step, но через ноды удобнее.
 
-            if nodes >= self.nodes_dist and self.branches_num != 0:
+            if nodes >= current_branch_threshold and self.branches_num != 0:
 
                 # Точка ветвления — текущая последняя нода главного аксона
                 branch_node = self.main_axon[-1]
@@ -1185,6 +1174,9 @@ class MRGaxon:
                 self.branches_num -= 1
                 nodes = 0
                 count_nodes_after_branching = max(0, self.main_transition_nodes - 1)
+                if branch_thresholds is not None and self.branches_num > 0:
+                    branch_threshold_idx += 1
+                    current_branch_threshold = int(branch_thresholds[branch_threshold_idx])
 
         # К каждой терминальной ноде добавляем только дистальную миелиновую нагрузку.
         # Так последняя нода остаётся точкой записи, но конец волокна не становится голым обрубком.
@@ -2562,7 +2554,6 @@ class MRGaxon:
         #print(f"Ёмкость миелина (mycm): {self.mycm} мкФ/см^2")
         #print(f"Проводимость миелина (mygm): {self.mygm} См/см^2")
         #print(f"Проводимость натриевых каналов в узле: {self.gna_axnode} См/см^2")
-        #print(f"Масштаб проводимости nap: {self.gnapbar_scale}")
         print("=" * 80 + "\n")
 
     def check_hdf5_contents(self, h5_path, experiment_name="experiment"):
@@ -2849,12 +2840,14 @@ class TwoSensoryAxonsPrescott:
         branch_nodes_A: int = 21,
         branches_num_A: int = 0,
         nodes_dist_A: int = 10,
+        branch_sequence_nodes_A=None,
         branch_every_um_A=None,
         # Параметры аксона B
         parent_axon_nodes_B: int = 42,
         branch_nodes_B: int = 21,
         branches_num_B: int = 2,
         nodes_dist_B: int = 10,
+        branch_sequence_nodes_B=None,
         branch_every_um_B=None,
         # Общие
         diam_scale: float = 0.6,
@@ -2866,7 +2859,6 @@ class TwoSensoryAxonsPrescott:
         dt_ms: float = 0.005,
         v_init: float = -80.0,
         h_stop: float = 1000.0,
-        gnapbar_scale: float = 0.5,
         XG1: float = 1e-9,
         rho_endoneurium_ohm_cm: float = 1211.0,
         rho_perineurium_ohm_cm: float = 1.136e5,
@@ -2900,6 +2892,7 @@ class TwoSensoryAxonsPrescott:
             branch_nodes=branch_nodes_A,
             branches_num=branches_num_A,
             nodes_dist=nodes_dist_A,
+            branch_sequence_nodes=branch_sequence_nodes_A,
             branch_every_um=branch_every_um_A,
             diam_scale=diam_scale,
             branch_topology_mode=branch_topology_mode_A,
@@ -2909,7 +2902,6 @@ class TwoSensoryAxonsPrescott:
             dt_ms=dt_ms,
             v_init=v_init,
             h_stop=h_stop,
-            gnapbar_scale=gnapbar_scale,
             reset_nrn=True,
         )
 
@@ -2920,6 +2912,7 @@ class TwoSensoryAxonsPrescott:
             branch_nodes=branch_nodes_B,
             branches_num=branches_num_B,
             nodes_dist=nodes_dist_B,
+            branch_sequence_nodes=branch_sequence_nodes_B,
             branch_every_um=branch_every_um_B,
             diam_scale=diam_scale,
             branch_topology_mode=branch_topology_mode_B,
@@ -2929,7 +2922,6 @@ class TwoSensoryAxonsPrescott:
             dt_ms=dt_ms,
             v_init=v_init,
             h_stop=h_stop,
-            gnapbar_scale=gnapbar_scale,
             reset_nrn=False,
         )
 
@@ -3059,29 +3051,68 @@ class TwoSensoryAxonsPrescott:
             centers.append(float(self.axonA.node_distance_um.get(nA1, i + 1)))
 
         rg_dimless = _compute_rg_dimless_from_centers(np.asarray(centers, dtype=float), s_um)
+        self._set_pairing_metadata_from_names(first, second)
+        return EphapticSpec(first, second, rg_dimless)
+
+    def _set_pairing_metadata_from_names(self, namesA: list[str], namesB: list[str]) -> None:
+        self._pairing_points_A = self.axonA.collect_main_path_pairing_points()
+        self._pairing_points_B = self.axonB.collect_main_path_pairing_points()
+        by_name_A = {p.name: p for p in self._pairing_points_A}
+        by_name_B = {p.name: p for p in self._pairing_points_B}
+        self._pairing_pairs = [
+            (by_name_A[a], by_name_B[b])
+            for a, b in zip(namesA, namesB)
+            if a in by_name_A and b in by_name_B
+        ]
+
+    @staticmethod
+    def _nearest_point(points: list[PairingPoint], x_um: float) -> Optional[PairingPoint]:
+        if not points:
+            return None
+        return min(points, key=lambda p: abs(float(p.x_um) - float(x_um)))
+
+    def _spec_misaligned_fractional_node_section(self) -> EphapticSpec:
+        """Experimental fractional misalignment: pair nodes to nearest non-node sections."""
+        pointsA = self.axonA.collect_main_path_pairing_points()
+        pointsB = self.axonB.collect_main_path_pairing_points()
+        nodesA = [p for p in pointsA if p.kind == 'node']
+        nodesB = [p for p in pointsB if p.kind == 'node']
+        non_nodesA = [p for p in pointsA if p.kind != 'node']
+        non_nodesB = [p for p in pointsB if p.kind != 'node']
+        max_dx_um = 0.5 * float(self.axonA.mrg_params.get('Lstep', 1.0))
+
+        pairs = []
+        for pa in nodesA:
+            pb = self._nearest_point(non_nodesB, float(pa.x_um))
+            if pb is not None and abs(float(pb.x_um) - float(pa.x_um)) <= max_dx_um:
+                pairs.append((pa, pb))
+        for pb in nodesB:
+            pa = self._nearest_point(non_nodesA, float(pb.x_um))
+            if pa is not None and abs(float(pb.x_um) - float(pa.x_um)) <= max_dx_um:
+                pairs.append((pa, pb))
+
+        pairs.sort(key=lambda pair: (float(pair[0].x_um), float(pair[1].x_um), pair[0].name, pair[1].name))
+        self._pairing_points_A = pointsA
+        self._pairing_points_B = pointsB
+        self._pairing_pairs = pairs
+
+        first = [pa.name for pa, _ in pairs]
+        second = [pb.name for _, pb in pairs]
+        centers = [float(pa.x_um) for pa, _ in pairs]
+        s_um = float(self.fiber_diameter_um)
+        rg_dimless = _compute_rg_dimless_from_centers(np.asarray(centers, dtype=float), s_um)
         return EphapticSpec(first, second, rg_dimless)
 
     def _spec_offset_nearest_main_path_sections(self) -> EphapticSpec:
+        # Server baseline: match main-trunk MRG units by node position, then couple
+        # like-with-like sections inside matched units.
+        unitsA = self.axonA.collect_main_path_pairing_units()
+        unitsB = self.axonB.collect_main_path_pairing_units()
+        unit_pairs = pair_units_monotonic_nearest_by_node(unitsA, unitsB, target_dx_um=float(self._offsetB_um))
+        pairs = flatten_paired_units(unit_pairs)
+
         self._pairing_points_A = self.axonA.collect_main_path_pairing_points()
         self._pairing_points_B = self.axonB.collect_main_path_pairing_points()
-
-        if abs(float(self._offsetB_um)) < 1e-12:
-            # Aligned: keep like-with-like links. This mirrors the node/compartment
-            # alignment in Abdollahi/Prescott and preserves the previous aligned case.
-            pairs = []
-            by_key_b: dict[str, list[PairingPoint]] = {}
-            for point_b in self._pairing_points_B:
-                by_key_b.setdefault(str(point_b.pair_key), []).append(point_b)
-            for point_a in self._pairing_points_A:
-                candidates = by_key_b.get(str(point_a.pair_key), [])
-                if not candidates:
-                    continue
-                best_i = min(range(len(candidates)), key=lambda i: abs(float(candidates[i].x_um) - float(point_a.x_um)))
-                pairs.append((point_a, candidates.pop(best_i)))
-        else:
-            # Misaligned: nodes are no longer node-to-node. Pair by real global X so a
-            # node can couple to a nearby internodal compartment, as in Abdollahi/Prescott.
-            pairs = pair_points_monotonic_nearest(self._pairing_points_A, self._pairing_points_B)
         self._pairing_pairs = list(pairs)
 
         first = [pa.name for pa, _ in pairs]
@@ -3158,8 +3189,8 @@ class TwoSensoryAxonsPrescott:
     def _build_all_couplers(self):
         # 5.1 axon-axon coupling (эндoневрий) -- можно отключить для сравнения
         if self.enable_ephaptic:
-            # Для обоих режимов (aligned и misaligned) используем одну и ту же
-            # branch-aware unit-based trunk pairing логику. Разница только в target dx.
+            # Server baseline: all EC modes use the same branch-aware unit pairing.
+            # aligned/misaligned differ only through self._offsetB_um.
             spec = self._spec_offset_nearest_main_path_sections()
 
             # сохраним для графиков анатомии/связи
@@ -3688,26 +3719,20 @@ class TwoSensoryAxonsPrescott:
                 dst.append((label, seg))
 
         def _map_like_points(dst: list, axon_target: MRGaxon, axon_ref: MRGaxon):
-            # Для неветвящегося аксона строим точки main-path, сопоставимые с branch-related
-            # точками ветвящегося аксона. Имена делаем такими же, чтобы downstream analysis
-            # не различал "ветвь" и "like"-точки.
+            # Для неветвящегося аксона пишем reference-like main-path точки.
+            # Они соответствуют branch-related координатам ветвящегося аксона,
+            # но маркируются честно как before_like / main_like / terminal_main.
             if getattr(axon_ref, 'before_branch_id', None):
                 seg_ref = axon_ref.before_branch_id[0]
                 x_ref = float(axon_ref.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
                 if np.isfinite(x_ref):
-                    _append_if_valid(dst, 'before_branch', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
+                    _append_if_valid(dst, 'before_like', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
 
             if getattr(axon_ref, 'after_branch_main_id', None):
                 seg_ref = axon_ref.after_branch_main_id[0]
                 x_ref = float(axon_ref.main_path_distance_um.get(seg_ref.sec.name(), float('nan')))
                 if np.isfinite(x_ref):
-                    _append_if_valid(dst, 'after_branch_main', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
-
-            if getattr(axon_ref, 'after_branch_daughter_id', None):
-                seg_ref = axon_ref.after_branch_daughter_id[0]
-                x_ref = float(axon_ref.daughter_path_distance_um.get(seg_ref.sec.name(), float('nan')))
-                if np.isfinite(x_ref):
-                    _append_if_valid(dst, 'after_branch_daughter', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
+                    _append_if_valid(dst, 'main_like', axon_target.get_node_segment_nearest_main_path_distance(x_ref))
 
         branched_A = _has_branch(self.axonA)
         branched_B = _has_branch(self.axonB)
@@ -3723,11 +3748,15 @@ class TwoSensoryAxonsPrescott:
             segB_term_dau = self.axonB.get_terminal_daughter_segment()
             if branched_A and segA_term is not None:
                 extraA.append(('terminal_main', segA_term))
+            if not branched_A and segA_term is not None:
+                extraA.append(('terminal_main', segA_term))
             if branched_A:
                 segA_term_dau = self.axonA.get_terminal_daughter_segment()
                 if segA_term_dau is not None:
                     extraA.append(('terminal_daughter', segA_term_dau))
             if branched_B and segB_term_main is not None:
+                extraB.append(('terminal_main', segB_term_main))
+            if not branched_B and segB_term_main is not None:
                 extraB.append(('terminal_main', segB_term_main))
             if branched_B and segB_term_dau is not None:
                 extraB.append(('terminal_daughter', segB_term_dau))
