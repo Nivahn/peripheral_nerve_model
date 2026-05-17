@@ -1,5 +1,4 @@
 from __future__ import annotations
-from neuron import h, load_mechanisms
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -10,9 +9,6 @@ import h5py
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
-
-#BASE_DIR = "/home/sagalajev_lab/mathematical_models/dorsal_column/2_Sensory_Axons"
-#load_mechanisms(BASE_DIR)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -43,7 +39,23 @@ MODE_CONFIGS = {
     "misaligned_0.5": {"filename_tag": "misaligned_0.5"},
     "misaligned_0.25": {"filename_tag": "misaligned_0.25"},
     "no_EC": {"filename_tag": "no_EC"},
+    "no_EC_isolated": {"filename_tag": "no_EC_isolated"},
 }
+
+
+def stimulus_amp_nA(fiber_diameter_um: float) -> float:
+    if np.isclose(float(fiber_diameter_um), 2.5):
+        return -1.0
+    if np.isclose(float(fiber_diameter_um), 5.7):
+        return -5.0
+    raise ValueError(f"Unsupported fiber_diameter_um={fiber_diameter_um}; expected 2.5 or 5.7")
+
+
+def amp_filename_tag(amp_nA: float) -> str:
+    amp_abs = abs(float(amp_nA))
+    if np.isclose(amp_abs, round(amp_abs)):
+        return f"amp{int(round(amp_abs))}"
+    return f"amp{amp_abs:g}".replace(".", "p")
 
 
 def frequency_group_name(freq_hz: int | float) -> str:
@@ -99,7 +111,7 @@ def build_launch_config(topology_name: str, fiber_diameter_um: float, scenario_n
         dt_ms = 0.005
 
     if scenario_name == "one_branch":
-        # Server baseline: branch after default nodes_dist_B=10.
+        # One branch: 8 nodes before branch, then 18 nodes along the main path.
         return LaunchConfig(
             topology_name=topology_name,
             branch_topology_mode=branch_topology_mode,
@@ -107,17 +119,17 @@ def build_launch_config(topology_name: str, fiber_diameter_um: float, scenario_n
             scenario_name=scenario_name,
             scenario_dir="one_branch",
             prefix="cb_ob" if topology_name == "connector_branching" else "on_ob",
-            parent_axon_nodes_A=17,
+            parent_axon_nodes_A=27,
             branch_nodes_A=8,
             branches_num_A=0,
             branch_sequence_nodes_A=None,
-            parent_axon_nodes_B=17,
+            parent_axon_nodes_B=27,
             branch_nodes_B=8,
             branches_num_B=1,
-            branch_sequence_nodes_B=None,
+            branch_sequence_nodes_B=[8],
             edge_distances_um=edge_distances,
             frequencies_hz=frequencies,
-            amp_nA=5.0,
+            amp_nA=stimulus_amp_nA(fiber_diameter_um),
             t_start_ms=t_start_ms,
             t_end_ms=t_end_ms,
             h_stop_ms=h_stop_ms,
@@ -145,7 +157,7 @@ def build_launch_config(topology_name: str, fiber_diameter_um: float, scenario_n
         branch_sequence_nodes_B=[8, 4, 4, 4],
         edge_distances_um=edge_distances,
         frequencies_hz=frequencies,
-        amp_nA=5.0,
+        amp_nA=stimulus_amp_nA(fiber_diameter_um),
         t_start_ms=t_start_ms,
         t_end_ms=t_end_ms,
         h_stop_ms=h_stop_ms,
@@ -265,7 +277,8 @@ def build_output_dir(cfg: LaunchConfig, edge_dist_um: float) -> Path:
 
 def build_h5_name(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> str:
     tag = MODE_CONFIGS[mode_name]["filename_tag"]
-    return f"{cfg.prefix}_fd{cfg.fiber_diameter_um}_ed{edge_dist_um}_{tag}_amp5.h5"
+    amp_tag = amp_filename_tag(cfg.amp_nA)
+    return f"{cfg.prefix}_fd{cfg.fiber_diameter_um}_ed{edge_dist_um}_{tag}_{amp_tag}.h5"
 
 
 def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSensoryAxonsPrescott:
@@ -278,6 +291,10 @@ def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSe
         branch_topology_mode_B=cfg.branch_topology_mode,
         branch_connector_length_um=1.0,
         branch_connector_diam_scale=1.0,
+        main_after_branch_diam_scale=0.6,
+        daughter_branch_diam_scale=0.6,
+        main_after_branch_param_mode="scaled_radial",
+        daughter_branch_param_mode="ascent_full",
         dt_ms=float(cfg.dt_ms),
         v_init=-80.0,
         h_stop=float(cfg.h_stop_ms),

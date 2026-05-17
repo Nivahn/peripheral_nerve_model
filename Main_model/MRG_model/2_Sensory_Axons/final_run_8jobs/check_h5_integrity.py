@@ -13,7 +13,22 @@ EXPECTED_TOPOLOGIES = ["one_node_branching", "connector_branching"]
 EXPECTED_DIAMETERS = [5.7, 2.5]
 EXPECTED_SCENARIOS = ["one_branch", "multiple_branches"]
 EXPECTED_DISTANCES = [0.1, 0.5, 1.0]
-EXPECTED_MODES = ["aligned", "misaligned_0.5", "misaligned_0.25", "no_EC"]
+EXPECTED_MODES = ["aligned", "misaligned_0.5", "misaligned_0.25", "no_EC", "no_EC_isolated"]
+
+
+def expected_amp_nA(diameter: float) -> float:
+    if np.isclose(float(diameter), 2.5):
+        return -1.0
+    if np.isclose(float(diameter), 5.7):
+        return -5.0
+    raise ValueError(f"Unsupported diameter={diameter}; expected 2.5 or 5.7")
+
+
+def amp_filename_tag(amp_nA: float) -> str:
+    amp_abs = abs(float(amp_nA))
+    if np.isclose(amp_abs, round(amp_abs)):
+        return f"amp{int(round(amp_abs))}"
+    return f"amp{amp_abs:g}".replace(".", "p")
 
 
 def prefix_for(topology: str, scenario: str) -> str:
@@ -28,21 +43,23 @@ def mode_tag(mode: str) -> str:
         "misaligned_0.5": "misaligned_0.5",
         "misaligned_0.25": "misaligned_0.25",
         "no_EC": "no_EC",
+        "no_EC_isolated": "no_EC_isolated",
     }[mode]
 
 
 def expected_h5_path(base_out: Path, topology: str, diameter: float, scenario: str, distance: float, mode: str) -> Path:
+    amp_tag = amp_filename_tag(expected_amp_nA(diameter))
     return (
         base_out
         / topology
         / f"fiber_d_{diameter}_um"
         / scenario
         / f"distance_{distance}"
-        / f"{prefix_for(topology, scenario)}_fd{diameter}_ed{distance}_{mode_tag(mode)}_amp5.h5"
+        / f"{prefix_for(topology, scenario)}_fd{diameter}_ed{distance}_{mode_tag(mode)}_{amp_tag}.h5"
     )
 
 
-def validate_h5_file(h5_path: Path) -> tuple[bool, list[str]]:
+def validate_h5_file(h5_path: Path, *, expected_amp: float | None = None) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not h5_path.exists():
         return False, [f"missing file: {h5_path}"]
@@ -69,6 +86,11 @@ def validate_h5_file(h5_path: Path) -> tuple[bool, list[str]]:
             for grp_name in ["AxonA_params", "AxonB_params", "Summary"]:
                 if grp_name not in f:
                     errors.append(f"missing group {grp_name}")
+
+            if expected_amp is not None and "amp_nA" in f.attrs:
+                actual_amp = float(f.attrs["amp_nA"])
+                if not np.isclose(actual_amp, float(expected_amp)):
+                    errors.append(f"amp_nA={actual_amp:g}, expected {float(expected_amp):g}")
 
             freq_groups = sorted([name for name in f.keys() if name.startswith("Frequency_")])
             if not freq_groups:
@@ -123,7 +145,7 @@ def run_validation(base_out: Path) -> tuple[bool, list[str]]:
                 for distance in EXPECTED_DISTANCES:
                     for mode in EXPECTED_MODES:
                         h5_path = expected_h5_path(base_out, topology, diameter, scenario, distance, mode)
-                        ok, errors = validate_h5_file(h5_path)
+                        ok, errors = validate_h5_file(h5_path, expected_amp=expected_amp_nA(diameter))
                         if not ok:
                             failures.append(str(h5_path))
                             failures.extend(f"  - {msg}" for msg in errors)

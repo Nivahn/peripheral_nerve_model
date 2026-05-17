@@ -1715,7 +1715,7 @@ class MRGaxon:
 
             self.stimulator = ipulse_stimulator
             # tstop с запасом
-            total_time = stimulation_duration_ms
+            total_time = t_end
             h.tstop = total_time
             self.h_stop = total_time
             #ipulse_stimulator.plot_waveform()
@@ -2510,7 +2510,6 @@ class MRGaxon:
                 node_grp.attrs["group"] = grp_name
                 node_grp.attrs["index_in_matrix"] = idx
                 node_grp.attrs["has_kinetics"] = has_kinetics
-
             # Немного метаданных по аксону
             grp_model.attrs["fiber_diameter_um"] = self.fiber_diameter
             grp_model.attrs["dt_ms"] = self.dt_ms
@@ -2892,8 +2891,9 @@ class TwoSensoryAxonsPrescott:
             enable_ephaptic=enable_ephaptic,
             misalignment_fraction=misalignment_fraction,
         )
-        self.aligned = self.mode_descriptor in ("aligned", "no_EC")
-        self.enable_ephaptic = self.mode_descriptor != "no_EC"
+        self.aligned = self.mode_descriptor in ("aligned", "no_EC", "no_EC_isolated")
+        self.enable_ephaptic = self.mode_descriptor not in ("no_EC", "no_EC_isolated")
+        self.enable_boundary = self.mode_descriptor != "no_EC_isolated"
 
         self.XG1 = float(XG1)
         self.rho_endoneurium_ohm_cm = float(rho_endoneurium_ohm_cm)
@@ -2906,6 +2906,7 @@ class TwoSensoryAxonsPrescott:
             "misaligned_0.5": 0.5,
             "misaligned_0.25": 0.25,
             "no_EC": None,
+            "no_EC_isolated": None,
         }[self.mode_descriptor]
         self.ec_strength_scale = float(ec_strength_scale)
         self._pairing_points_A = []
@@ -2958,9 +2959,13 @@ class TwoSensoryAxonsPrescott:
             reset_nrn=False,
         )
 
-        # 3) Применяем Prescott-параметры для vext[1]
-        self.xrA = self.axonA.apply_prescott_extracellular_layer1(edge_dist_um=self.edge_dist_um, XG1=self.XG1)
-        self.xrB = self.axonB.apply_prescott_extracellular_layer1(edge_dist_um=self.edge_dist_um, XG1=self.XG1)
+        # 3) Применяем Prescott-параметры для vext[1], кроме полностью изолированного контроля.
+        if self.enable_boundary:
+            self.xrA = self.axonA.apply_prescott_extracellular_layer1(edge_dist_um=self.edge_dist_um, XG1=self.XG1)
+            self.xrB = self.axonB.apply_prescott_extracellular_layer1(edge_dist_um=self.edge_dist_um, XG1=self.XG1)
+        else:
+            self.xrA = None
+            self.xrB = None
 
         # ---------------------------------------------------------------------------------
         # Prescott: координаты по X важны для aligned/misaligned.
@@ -2971,7 +2976,7 @@ class TwoSensoryAxonsPrescott:
         self.axonB.recompute_trunk_geometry_for_coupling()
 
         Lstep = float(self.axonA.mrg_params.get('Lstep', 1.0))
-        if self.mode_descriptor == "aligned" or self.mode_descriptor == "no_EC":
+        if self.mode_descriptor in ("aligned", "no_EC", "no_EC_isolated"):
             offB = 0.0
         elif self.mode_descriptor == "misaligned_0.5":
             # Prescott misaligned: полушаг по продольной оси.
@@ -3012,9 +3017,9 @@ class TwoSensoryAxonsPrescott:
     ) -> str:
         if mode_descriptor is not None:
             mode = str(mode_descriptor)
-            if mode not in {"aligned", "misaligned_0.5", "misaligned_0.25", "no_EC"}:
+            if mode not in {"aligned", "misaligned_0.5", "misaligned_0.25", "no_EC", "no_EC_isolated"}:
                 raise ValueError(
-                    "mode_descriptor must be one of: aligned, misaligned_0.5, misaligned_0.25, no_EC"
+                    "mode_descriptor must be one of: aligned, misaligned_0.5, misaligned_0.25, no_EC, no_EC_isolated"
                 )
             return mode
 
@@ -3280,6 +3285,16 @@ class TwoSensoryAxonsPrescott:
             ).build()
         else:
             self.coupler_AB = None
+
+        if not self.enable_boundary:
+            self.boundaryA = None
+            self.boundaryB = None
+            self.coupler_A_boundary = None
+            self.coupler_B_boundary = None
+            self.specA_boundary = None
+            self.specB_boundary = None
+            self._hoc_keepalive = [self.coupler_AB]
+            return
 
         # 5.2 axon-boundary coupling (perineurium)
         rd_b = self.rho_perineurium_ohm_cm * 10000.0 * self.perineurium_thickness_cm * 10000.0
