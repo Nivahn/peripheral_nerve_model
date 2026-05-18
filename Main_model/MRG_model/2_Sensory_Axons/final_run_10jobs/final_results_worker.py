@@ -20,6 +20,8 @@ from MRG_lib import TwoSensoryAxonsPrescott  # noqa: E402
 DEFAULT_TOPOLOGY_NAME = "one_node_branching"
 DEFAULT_FIBER_DIAMETER_UM = 5.7
 DEFAULT_SCENARIO_NAME = "one_branch"
+DEFAULT_STIM_PROTOCOL = "sync"
+DEFAULT_STIM_B_DELAY_MS = 0.5
 
 
 AXON_A_SUMMARY_LABELS = ["stimulation_point", "before_like", "main_like", "terminal_main"]
@@ -56,6 +58,18 @@ def amp_filename_tag(amp_nA: float) -> str:
     if np.isclose(amp_abs, round(amp_abs)):
         return f"amp{int(round(amp_abs))}"
     return f"amp{amp_abs:g}".replace(".", "p")
+
+
+def stim_protocol_tag(stim_protocol: str, stim_b_delay_ms: float = 0.0) -> str:
+    protocol = str(stim_protocol).strip()
+    if protocol == "sync":
+        return "sync"
+    if protocol == "delay":
+        delay = float(stim_b_delay_ms)
+        if delay < 0.0:
+            raise ValueError(f"stim_b_delay_ms must be >= 0, got {delay}")
+        return f"delay_{delay:g}ms".replace(".", "p")
+    raise ValueError("stim_protocol must be 'sync' or 'delay'")
 
 
 def frequency_group_name(freq_hz: int | float) -> str:
@@ -178,7 +192,19 @@ def detect_spike_count(t_ms: np.ndarray, v_mV: np.ndarray) -> int:
     return int(len(peaks))
 
 
-def write_root_metadata(h5_path: Path, cfg: LaunchConfig, *, edge_dist_um: float, mode_name: str, test_mode: bool):
+def write_root_metadata(
+    h5_path: Path,
+    cfg: LaunchConfig,
+    *,
+    edge_dist_um: float,
+    mode_name: str,
+    test_mode: bool,
+    stim_protocol: str,
+    stim_b_delay_ms: float,
+    h_stop_ms: float,
+):
+    stim_a_start_ms = float(cfg.t_start_ms)
+    stim_b_start_ms = float(cfg.t_start_ms + (float(stim_b_delay_ms) if stim_protocol == "delay" else 0.0))
     with h5py.File(h5_path, "w") as f:
         f.attrs["topology"] = cfg.topology_name
         f.attrs["scenario"] = cfg.scenario_name
@@ -188,7 +214,12 @@ def write_root_metadata(h5_path: Path, cfg: LaunchConfig, *, edge_dist_um: float
         f.attrs["amp_nA"] = float(cfg.amp_nA)
         f.attrs["stim_description"] = f"biphasic phase_us={cfg.phase_us} gap_us={cfg.gap_us}"
         f.attrs["dt_ms"] = float(cfg.dt_ms)
-        f.attrs["h_stop_ms"] = float(cfg.h_stop_ms)
+        f.attrs["h_stop_ms"] = float(h_stop_ms)
+        f.attrs["stim_protocol"] = str(stim_protocol)
+        f.attrs["stim_protocol_tag"] = stim_protocol_tag(stim_protocol, stim_b_delay_ms)
+        f.attrs["stim_A_start_ms"] = float(stim_a_start_ms)
+        f.attrs["stim_B_start_ms"] = float(stim_b_start_ms)
+        f.attrs["stim_B_delay_ms"] = float(stim_b_delay_ms if stim_protocol == "delay" else 0.0)
         f.attrs["created_by"] = "final_run_8jobs/final_results_worker.py"
         f.attrs["test_mode"] = int(bool(test_mode))
         f.attrs["frequencies_hz"] = json.dumps(list(cfg.frequencies_hz))
@@ -221,7 +252,7 @@ def finalize_summary(h5_path: Path, summary_rows: list[dict]):
             grp.create_dataset(col, data=values)
 
 
-def is_complete_output_file(h5_path: Path, cfg: LaunchConfig) -> bool:
+def is_complete_output_file(h5_path: Path, cfg: LaunchConfig, *, stim_protocol: str, stim_b_delay_ms: float, h_stop_ms: float) -> bool:
     if not h5_path.exists():
         return False
 
@@ -229,6 +260,12 @@ def is_complete_output_file(h5_path: Path, cfg: LaunchConfig) -> bool:
 
     try:
         with h5py.File(h5_path, "r") as f:
+            if str(f.attrs.get("stim_protocol", "")) != str(stim_protocol):
+                return False
+            if not np.isclose(float(f.attrs.get("stim_B_delay_ms", np.nan)), float(stim_b_delay_ms if stim_protocol == "delay" else 0.0)):
+                return False
+            if not np.isclose(float(f.attrs.get("h_stop_ms", np.nan)), float(h_stop_ms)):
+                return False
             if "Summary" not in f or not list(f["Summary"].keys()):
                 return False
 
@@ -275,13 +312,14 @@ def build_output_dir(cfg: LaunchConfig, edge_dist_um: float) -> Path:
     )
 
 
-def build_h5_name(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> str:
+def build_h5_name(cfg: LaunchConfig, edge_dist_um: float, mode_name: str, *, stim_protocol: str, stim_b_delay_ms: float) -> str:
     tag = MODE_CONFIGS[mode_name]["filename_tag"]
+    protocol_tag = stim_protocol_tag(stim_protocol, stim_b_delay_ms)
     amp_tag = amp_filename_tag(cfg.amp_nA)
-    return f"{cfg.prefix}_fd{cfg.fiber_diameter_um}_ed{edge_dist_um}_{tag}_{amp_tag}.h5"
+    return f"{cfg.prefix}_fd{cfg.fiber_diameter_um}_ed{edge_dist_um}_{tag}_{protocol_tag}_{amp_tag}.h5"
 
 
-def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSensoryAxonsPrescott:
+def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str, *, h_stop_ms: float | None = None) -> TwoSensoryAxonsPrescott:
     return TwoSensoryAxonsPrescott(
         fiber_diameter_um=float(cfg.fiber_diameter_um),
         edge_dist_um=float(edge_dist_um),
@@ -297,7 +335,7 @@ def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSe
         daughter_branch_param_mode="ascent_full",
         dt_ms=float(cfg.dt_ms),
         v_init=-80.0,
-        h_stop=float(cfg.h_stop_ms),
+        h_stop=float(cfg.h_stop_ms if h_stop_ms is None else h_stop_ms),
         celsius=37.0,
         boundary_full_cable=False,
         parent_axon_nodes_A=int(cfg.parent_axon_nodes_A),
@@ -311,36 +349,67 @@ def build_model(cfg: LaunchConfig, edge_dist_um: float, mode_name: str) -> TwoSe
     )
 
 
-def run_one_file(cfg: LaunchConfig, *, edge_dist_um: float, mode_name: str, test_mode: bool) -> Path:
+def run_one_file(
+    cfg: LaunchConfig,
+    *,
+    edge_dist_um: float,
+    mode_name: str,
+    test_mode: bool,
+    stim_protocol: str,
+    stim_b_delay_ms: float,
+) -> Path:
+    stim_protocol = str(stim_protocol)
+    delay_ms = float(stim_b_delay_ms if stim_protocol == "delay" else 0.0)
+    protocol_tag = stim_protocol_tag(stim_protocol, delay_ms)
+    h_stop_ms = float(cfg.h_stop_ms + delay_ms)
     out_dir = build_output_dir(cfg, edge_dist_um)
     out_dir.mkdir(parents=True, exist_ok=True)
-    h5_path = out_dir / build_h5_name(cfg, edge_dist_um, mode_name)
-    if is_complete_output_file(h5_path, cfg):
+    h5_path = out_dir / build_h5_name(cfg, edge_dist_um, mode_name, stim_protocol=stim_protocol, stim_b_delay_ms=delay_ms)
+    if is_complete_output_file(h5_path, cfg, stim_protocol=stim_protocol, stim_b_delay_ms=delay_ms, h_stop_ms=h_stop_ms):
         print(f"Skipping complete HDF5: {h5_path}")
         return h5_path
 
     if h5_path.exists():
         h5_path.unlink()
 
-    write_root_metadata(h5_path, cfg, edge_dist_um=edge_dist_um, mode_name=mode_name, test_mode=test_mode)
+    write_root_metadata(
+        h5_path,
+        cfg,
+        edge_dist_um=edge_dist_um,
+        mode_name=mode_name,
+        test_mode=test_mode,
+        stim_protocol=stim_protocol,
+        stim_b_delay_ms=delay_ms,
+        h_stop_ms=h_stop_ms,
+    )
 
     summary_rows = []
-    model = build_model(cfg, edge_dist_um, mode_name)
+    model = build_model(cfg, edge_dist_um, mode_name, h_stop_ms=h_stop_ms)
     for freq_hz in cfg.frequencies_hz:
-        model.set_stimulation_for_axons(
+        stim_kwargs_A = {
+            "mode": "create",
+            "biphasic": bool(cfg.biphasic),
+            "freq_hz": float(freq_hz),
+            "amp": float(cfg.amp_nA),
+            "t_start": float(cfg.t_start_ms),
+            "t_end": float(cfg.t_end_ms),
+            "phase_us": float(cfg.phase_us),
+            "gap_us": float(cfg.gap_us),
+        }
+        stim_kwargs_B = dict(stim_kwargs_A)
+        stim_kwargs_B["t_start"] = float(cfg.t_start_ms + delay_ms)
+        stim_kwargs_B["t_end"] = float(cfg.t_end_ms + delay_ms)
+        model.set_stimulation_for_axons_independent(
             stim_A=True,
             stim_B=True,
-            stim_target_mode="node_index",
-            stim_node_index=0,
-            stim_x_um=None,
-            mode="create",
-            biphasic=bool(cfg.biphasic),
-            freq_hz=float(freq_hz),
-            amp=float(cfg.amp_nA),
-            t_start=float(cfg.t_start_ms),
-            t_end=float(cfg.t_end_ms),
-            phase_us=float(cfg.phase_us),
-            gap_us=float(cfg.gap_us),
+            stim_target_mode_A="node_index",
+            stim_node_index_A=0,
+            stim_x_um_A=None,
+            stim_target_mode_B="node_index",
+            stim_node_index_B=0,
+            stim_x_um_B=None,
+            stim_kwargs_A=stim_kwargs_A,
+            stim_kwargs_B=stim_kwargs_B,
         )
         exp_name = frequency_group_name(freq_hz)
         model.run_simulation_two_axons(
@@ -353,7 +422,7 @@ def run_one_file(cfg: LaunchConfig, *, edge_dist_um: float, mode_name: str, test
             record_terminal_nodes=True,
         )
 
-        row = {"freq_hz": float(freq_hz), "success": 1}
+        row = {"freq_hz": float(freq_hz), "success": 1, "stim_protocol": protocol_tag, "stim_B_delay_ms": delay_ms}
         labelsA = list(getattr(model.axonA, "recording_labels", []) or [])
         labelsB = list(getattr(model.axonB, "recording_labels", []) or [])
         for label in AXON_A_SUMMARY_LABELS:
@@ -371,11 +440,33 @@ def run_one_file(cfg: LaunchConfig, *, edge_dist_um: float, mode_name: str, test
     return h5_path
 
 
-def run_launch(cfg: LaunchConfig, *, test_mode: bool = False) -> list[Path]:
+def run_launch(
+    cfg: LaunchConfig,
+    *,
+    test_mode: bool = False,
+    mode_filter: str | None = None,
+    stim_protocol: str = DEFAULT_STIM_PROTOCOL,
+    stim_b_delay_ms: float = DEFAULT_STIM_B_DELAY_MS,
+) -> list[Path]:
     outputs = []
+    mode_names = list(MODE_CONFIGS)
+    if mode_filter is not None:
+        mode_filter = str(mode_filter)
+        if mode_filter not in MODE_CONFIGS:
+            raise ValueError(f"Unknown mode_filter={mode_filter}; expected one of {sorted(MODE_CONFIGS)}")
+        mode_names = [mode_filter]
     for edge_dist_um in cfg.edge_distances_um:
-        for mode_name in MODE_CONFIGS:
-            outputs.append(run_one_file(cfg, edge_dist_um=float(edge_dist_um), mode_name=mode_name, test_mode=test_mode))
+        for mode_name in mode_names:
+            outputs.append(
+                run_one_file(
+                    cfg,
+                    edge_dist_um=float(edge_dist_um),
+                    mode_name=mode_name,
+                    test_mode=test_mode,
+                    stim_protocol=stim_protocol,
+                    stim_b_delay_ms=stim_b_delay_ms,
+                )
+            )
     return outputs
 
 
@@ -383,16 +474,33 @@ def main():
     topology_name = str(os.getenv("TOPOLOGY_NAME", DEFAULT_TOPOLOGY_NAME))
     fiber_diameter_um = float(os.getenv("FIBER_DIAMETER_UM", str(DEFAULT_FIBER_DIAMETER_UM)))
     scenario_name = str(os.getenv("SCENARIO_NAME", DEFAULT_SCENARIO_NAME))
+    mode_filter = os.getenv("MODE_NAME")
+    stim_protocol = str(os.getenv("STIM_PROTOCOL", DEFAULT_STIM_PROTOCOL))
+    stim_b_delay_ms = float(os.getenv("STIM_B_DELAY_MS", str(DEFAULT_STIM_B_DELAY_MS)))
 
     if len(sys.argv) >= 4:
         topology_name = str(sys.argv[1])
         fiber_diameter_um = float(sys.argv[2])
         scenario_name = str(sys.argv[3])
+    if len(sys.argv) >= 5:
+        mode_filter = str(sys.argv[4])
+    if len(sys.argv) >= 6:
+        stim_protocol = str(sys.argv[5])
+    if len(sys.argv) >= 7:
+        stim_b_delay_ms = float(sys.argv[6])
 
     test_mode = bool(int(os.getenv("TEST_MODE", "0")))
     cfg = build_launch_config(topology_name, fiber_diameter_um, scenario_name, test_mode=test_mode)
-    outputs = run_launch(cfg, test_mode=test_mode)
-    print(f"Created {len(outputs)} HDF5 files for {cfg.topology_name}, fd={cfg.fiber_diameter_um}, scenario={cfg.scenario_name}")
+    outputs = run_launch(
+        cfg,
+        test_mode=test_mode,
+        mode_filter=mode_filter,
+        stim_protocol=stim_protocol,
+        stim_b_delay_ms=stim_b_delay_ms,
+    )
+    mode_label = mode_filter if mode_filter is not None else "all_modes"
+    protocol_label = stim_protocol_tag(stim_protocol, stim_b_delay_ms if stim_protocol == "delay" else 0.0)
+    print(f"Created {len(outputs)} HDF5 files for {cfg.topology_name}, fd={cfg.fiber_diameter_um}, scenario={cfg.scenario_name}, mode={mode_label}, protocol={protocol_label}")
 
 
 if __name__ == "__main__":

@@ -1,37 +1,40 @@
-# Final Run 8 Jobs
+# Final Run One-Node Jobs
 
 ## Goal
 
-This package implements 8 independent production-ready SLURM launches.
+This package implements mode-specific production-ready SLURM launches for `one_node_branching`.
 
-Each launch fixes:
+Each simulation launch fixes:
 
-- topology: `connector_branching` or `one_node_branching`
+- topology: `one_node_branching`
 - fiber diameter: `5.7` or `2.5`
 - morphology scenario: `one_branch` or `multiple_branches`
+- mode: one of `aligned`, `misaligned_0.5`, `misaligned_0.25`, `no_EC`, `no_EC_isolated`
+- stimulation protocol: `sync` or `delay`
 
 Inside each launch, the code runs:
 
 - edge distance: `0.1`, `0.5`, `1.0`
-- mode: `aligned`, `misaligned_0.5`, `misaligned_0.25`, `no_EC`, `no_EC_isolated`
 - frequencies: `50..1000 Hz` with step `50`
 
-For each `(distance, mode)` pair, one HDF5 file is created, and all frequencies are stored inside that file as separate groups.
+For each distance, one HDF5 file is created, and all frequencies are stored inside that file as separate groups.
 
 ## Files in this folder
 
 - `final_results_worker.py`
 - `check_h5_integrity.py`
 - `smoke_test_all.py`
-- `submit_all_final_run.sh`
-- `submit_cb_fd5p7_one_branch.sbatch`
-- `submit_cb_fd5p7_multiple_branches.sbatch`
-- `submit_on_fd5p7_one_branch.sbatch`
-- `submit_on_fd5p7_multiple_branches.sbatch`
-- `submit_cb_fd2p5_one_branch.sbatch`
-- `submit_cb_fd2p5_multiple_branches.sbatch`
-- `submit_on_fd2p5_one_branch.sbatch`
-- `submit_on_fd2p5_multiple_branches.sbatch`
+- `submit_on_fd2p5_aligned.sbatch`
+- `submit_on_fd2p5_misaligned_0p5.sbatch`
+- `submit_on_fd2p5_misaligned_0p25.sbatch`
+- `submit_on_fd2p5_no_EC.sbatch`
+- `submit_on_fd2p5_no_EC_isolated.sbatch`
+- `submit_on_fd5p7_aligned.sbatch`
+- `submit_on_fd5p7_misaligned_0p5.sbatch`
+- `submit_on_fd5p7_misaligned_0p25.sbatch`
+- `submit_on_fd5p7_no_EC.sbatch`
+- `submit_on_fd5p7_no_EC_isolated.sbatch`
+- `submit_analyze_outputs.sbatch`
 
 ## Output folder structure
 
@@ -52,13 +55,6 @@ final_result/
 │   └── fiber_d_2.5_um/
 │       ├── one_branch/
 │       └── multiple_branches/
-└── connector_branching/
-    ├── fiber_d_5.7_um/
-    │   ├── one_branch/
-    │   └── multiple_branches/
-    └── fiber_d_2.5_um/
-        ├── one_branch/
-        └── multiple_branches/
 ```
 
 ## File naming
@@ -68,30 +64,26 @@ final_result/
 - `on_ob` = one_branch
 - `on_mb` = multiple_branches
 
-### connector_branching
-
-- `cb_ob` = one_branch
-- `cb_mb` = multiple_branches
-
 ### HDF5 format
 
 ```text
-<prefix>_fd<diameter>_ed<distance>_<mode>_amp<abs_amp>.h5
+<prefix>_fd<diameter>_ed<distance>_<mode>_<sync|delay_Xms>_amp<abs_amp>.h5
 ```
 
 Examples:
 
-- `on_ob_fd5.7_ed0.1_aligned_amp5.h5`
-- `on_ob_fd5.7_ed0.1_misaligned_0.5_amp5.h5`
-- `on_ob_fd5.7_ed0.1_misaligned_0.25_amp5.h5`
-- `on_ob_fd5.7_ed0.1_no_EC_amp5.h5`
-- `on_ob_fd5.7_ed0.1_no_EC_isolated_amp5.h5`
+- `on_ob_fd5.7_ed0.1_aligned_sync_amp5.h5`
+- `on_ob_fd5.7_ed0.1_aligned_delay_0p5ms_amp5.h5`
+- `on_ob_fd5.7_ed0.1_misaligned_0.5_sync_amp5.h5`
+- `on_ob_fd5.7_ed0.1_misaligned_0.25_sync_amp5.h5`
+- `on_ob_fd5.7_ed0.1_no_EC_sync_amp5.h5`
+- `on_ob_fd5.7_ed0.1_no_EC_isolated_sync_amp5.h5`
 
-- `cb_mb_fd2.5_ed1.0_aligned_amp1.h5`
-- `cb_mb_fd2.5_ed1.0_misaligned_0.5_amp1.h5`
-- `cb_mb_fd2.5_ed1.0_misaligned_0.25_amp1.h5`
-- `cb_mb_fd2.5_ed1.0_no_EC_amp1.h5`
-- `cb_mb_fd2.5_ed1.0_no_EC_isolated_amp1.h5`
+- `on_mb_fd2.5_ed1.0_aligned_sync_amp1.h5`
+- `on_mb_fd2.5_ed1.0_misaligned_0.5_sync_amp1.h5`
+- `on_mb_fd2.5_ed1.0_misaligned_0.25_sync_amp1.h5`
+- `on_mb_fd2.5_ed1.0_no_EC_sync_amp1.h5`
+- `on_mb_fd2.5_ed1.0_no_EC_isolated_sync_amp1.h5`
 
 ## Morphologies
 
@@ -214,7 +206,7 @@ and inside them the standard model output written by `run_simulation_two_axons()
 ## How SLURM runs
 
 Simple mode:
-- `1 sbatch = 1 full configuration`
+- `1 sbatch = 1 diameter/mode configuration`
 - no array jobs
 - no chunk scheme
 - no internal multiprocessing
@@ -222,16 +214,32 @@ Simple mode:
 Each sbatch runs sequentially through:
 
 - `3 distances`
-- `4 modes`
+- `1 mode`
 - `20 frequencies`
 
 So one sbatch does:
 
-- `3 * 4 * 20 = 240` model runs
+- `3 * 1 * 20 = 60` model runs and writes `3` HDF5 files
 
-All 8 sbatch files together do:
+All 10 simulation sbatch files together do:
 
-- `8 * 240 = 1920` model runs
+- `10 * 60 = 600` model runs and write `30` HDF5 files for `one_branch`
+- Change `SCENARIO="one_branch"` to `SCENARIO="multiple_branches"` in each sbatch to run the multiple-branch set.
+
+Each sbatch also has a stimulation protocol flag:
+
+```bash
+STIM_PROTOCOL="sync"   # sync or delay
+STIM_B_DELAY_MS="0.5"  # used only when STIM_PROTOCOL="delay"
+```
+
+For delayed co-stimulation, change only:
+
+```bash
+STIM_PROTOCOL="delay"
+```
+
+The delayed files will include `_delay_0p5ms_` in the filename instead of `_sync_`.
 
 ## Commands
 
@@ -240,13 +248,28 @@ All 8 sbatch files together do:
 Example:
 
 ```bash
-sbatch final_run_8jobs/submit_cb_fd5p7_one_branch.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_aligned.sbatch
 ```
 
-### Run all 8
+### Run all 10 simulation jobs
 
 ```bash
-bash final_run_8jobs/submit_all_final_run.sh
+sbatch final_run_8jobs/submit_on_fd2p5_aligned.sbatch
+sbatch final_run_8jobs/submit_on_fd2p5_misaligned_0p5.sbatch
+sbatch final_run_8jobs/submit_on_fd2p5_misaligned_0p25.sbatch
+sbatch final_run_8jobs/submit_on_fd2p5_no_EC.sbatch
+sbatch final_run_8jobs/submit_on_fd2p5_no_EC_isolated.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_aligned.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_misaligned_0p5.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_misaligned_0p25.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_no_EC.sbatch
+sbatch final_run_8jobs/submit_on_fd5p7_no_EC_isolated.sbatch
+```
+
+### Analyze outputs
+
+```bash
+sbatch final_run_8jobs/submit_analyze_outputs.sbatch
 ```
 
 ### Run smoke test

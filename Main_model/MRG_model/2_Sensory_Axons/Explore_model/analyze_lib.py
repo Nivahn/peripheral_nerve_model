@@ -89,6 +89,8 @@ def read_h5_attrs(h5_path: str | Path) -> dict:
             "fiber_diameter_um": float(f.attrs.get("fiber_diameter_um", np.nan)),
             "edge_dist_um": float(f.attrs.get("edge_dist_um", np.nan)),
             "mode": str(f.attrs.get("mode", "")),
+            "stim_protocol": str(f.attrs.get("stim_protocol_tag", f.attrs.get("stim_protocol", "sync"))),
+            "stim_B_delay_ms": float(f.attrs.get("stim_B_delay_ms", 0.0)),
             "test_mode": int(f.attrs.get("test_mode", 0)),
 
             # дополнительные параметры, если есть
@@ -276,6 +278,8 @@ def read_basic_h5_attrs(h5_path, f):
         "fiber_diameter_um": float(f.attrs.get("fiber_diameter_um", np.nan)),
         "edge_dist_um": float(f.attrs.get("edge_dist_um", np.nan)),
         "mode": str(f.attrs.get("mode", "")),
+        "stim_protocol": str(f.attrs.get("stim_protocol_tag", f.attrs.get("stim_protocol", "sync"))),
+        "stim_B_delay_ms": float(f.attrs.get("stim_B_delay_ms", 0.0)),
         "test_mode": int(f.attrs.get("test_mode", 0)),
     }
 
@@ -706,7 +710,7 @@ def build_before_after_metrics(spikes_df: pd.DataFrame) -> tuple[pd.DataFrame, p
     df = prepare_spikes_df(spikes_df)
     matched_rows = []
     summary_rows = []
-    group_cols = ["h5_file", "h5_name", "topology", "scenario", "fiber_diameter_um", "edge_dist_um", "mode", "mode_norm", "freq_hz"]
+    group_cols = ["h5_file", "h5_name", "topology", "scenario", "fiber_diameter_um", "edge_dist_um", "mode", "mode_norm", "stim_protocol", "stim_B_delay_ms", "freq_hz"]
 
     for keys, g in df.groupby(group_cols, dropna=False):
         meta = dict(zip(group_cols, keys))
@@ -802,6 +806,8 @@ def build_no_ec_delta_summary(
         "scenario",
         "fiber_diameter_um",
         "edge_dist_um",
+        "stim_protocol",
+        "stim_B_delay_ms",
         "freq_hz",
         "axon",
     ]

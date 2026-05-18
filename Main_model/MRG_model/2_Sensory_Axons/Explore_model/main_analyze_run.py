@@ -57,7 +57,7 @@ TRACE_ROLE_MAP = {
 }
 
 DIAMETERS = [2.5, 5.7]
-TOPOLOGIES = ["connector_branching", "one_node_branching"]
+TOPOLOGIES = ["one_node_branching"]
 SCENARIOS = ["one_branch", "multiple_branches"]
 
 
@@ -99,78 +99,90 @@ def build_metrics(spikes_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
 
 def build_all_plots(summary_df: pd.DataFrame, delta_df: pd.DataFrame) -> None:
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
+    protocols = ["sync"]
+    if "stim_protocol" in summary_df.columns:
+        protocols = sorted(str(x) for x in summary_df["stim_protocol"].dropna().unique()) or ["sync"]
 
-    for diameter in DIAMETERS:
-        for topology in TOPOLOGIES:
-            for scenario in SCENARIOS:
-                # Old view: columns are distances, lines are modes.
-                plot_following_and_velocity(
-                    summary_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    out_dir=PLOT_DIR / "by_distance",
-                )
+    for protocol in protocols:
+        summary_plot_df = summary_df
+        delta_plot_df = delta_df
+        protocol_plot_dir = PLOT_DIR if protocols == ["sync"] else PLOT_DIR / protocol
+        if "stim_protocol" in summary_df.columns:
+            summary_plot_df = summary_df[summary_df["stim_protocol"].astype(str) == protocol].copy()
+        if "stim_protocol" in delta_df.columns:
+            delta_plot_df = delta_df[delta_df["stim_protocol"].astype(str) == protocol].copy()
 
-                # New view: columns are modes, lines are distances.
-                plot_following_by_mode_grid(
-                    summary_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    include_no_ec=False,
-                    out_dir=PLOT_DIR / "by_mode_3_modes",
-                )
-                plot_velocity_by_mode_grid(
-                    summary_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    include_no_ec=False,
-                    out_dir=PLOT_DIR / "by_mode_3_modes",
-                )
+        for diameter in DIAMETERS:
+            for topology in TOPOLOGIES:
+                for scenario in SCENARIOS:
+                    # Old view: columns are distances, lines are modes.
+                    plot_following_and_velocity(
+                        summary_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        out_dir=protocol_plot_dir / "by_distance",
+                    )
 
-                # New view with no_EC and no_EC_isolated controls.
-                plot_following_by_mode_grid(
-                    summary_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    include_no_ec=True,
-                    out_dir=PLOT_DIR / "by_mode_with_no_ec",
-                )
-                plot_velocity_by_mode_grid(
-                    summary_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    include_no_ec=True,
-                    out_dir=PLOT_DIR / "by_mode_with_no_ec",
-                )
+                    # New view: columns are modes, lines are distances.
+                    plot_following_by_mode_grid(
+                        summary_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        include_no_ec=False,
+                        out_dir=protocol_plot_dir / "by_mode_3_modes",
+                    )
+                    plot_velocity_by_mode_grid(
+                        summary_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        include_no_ec=False,
+                        out_dir=protocol_plot_dir / "by_mode_3_modes",
+                    )
 
-                # Delta vs no_EC_isolated: columns are non-isolated modes, lines are distances.
-                tag = f"fd{diameter}_{topology}_{scenario}"
-                plot_no_ec_delta_by_mode_grid(
-                    delta_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    delta_metric_col="delta_following_fraction_terminal_vs_no_ec_isolated",
-                    metric_label="Delta доли следования на terminal_main vs no_EC_isolated",
-                    y_lim=(-1.05, 1.05),
-                    out_path=PLOT_DIR / "delta_vs_no_ec_isolated" / f"{tag}_delta_following.png",
-                )
-                plot_no_ec_delta_by_mode_grid(
-                    delta_df,
-                    fiber_diameter_um=diameter,
-                    topology=topology,
-                    scenario=scenario,
-                    delta_metric_col="delta_median_terminal_velocity_m_s_vs_no_ec_isolated",
-                    metric_label="Delta скорости до terminal_main vs no_EC_isolated, м/с",
-                    y_lim=None,
-                    scale_y_by_axon=True,
-                    out_path=PLOT_DIR / "delta_vs_no_ec_isolated" / f"{tag}_delta_velocity.png",
-                )
+                    # New view with no_EC and no_EC_isolated controls.
+                    plot_following_by_mode_grid(
+                        summary_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        include_no_ec=True,
+                        out_dir=protocol_plot_dir / "by_mode_with_no_ec",
+                    )
+                    plot_velocity_by_mode_grid(
+                        summary_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        include_no_ec=True,
+                        out_dir=protocol_plot_dir / "by_mode_with_no_ec",
+                    )
+
+                    # Delta vs no_EC_isolated: columns are non-isolated modes, lines are distances.
+                    tag = f"fd{diameter}_{topology}_{scenario}"
+                    plot_no_ec_delta_by_mode_grid(
+                        delta_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        delta_metric_col="delta_following_fraction_terminal_vs_no_ec_isolated",
+                        metric_label="Delta following",
+                        y_lim=(-1.05, 1.05),
+                        out_path=protocol_plot_dir / "delta_vs_no_ec_isolated" / f"{tag}_delta_following.png",
+                    )
+                    plot_no_ec_delta_by_mode_grid(
+                        delta_plot_df,
+                        fiber_diameter_um=diameter,
+                        topology=topology,
+                        scenario=scenario,
+                        delta_metric_col="delta_median_terminal_velocity_m_s_vs_no_ec_isolated",
+                        metric_label="Delta velocity, m/s",
+                        y_lim=None,
+                        scale_y_by_axon=True,
+                        out_path=protocol_plot_dir / "delta_vs_no_ec_isolated" / f"{tag}_delta_velocity.png",
+                    )
 
 
 # ============================================================

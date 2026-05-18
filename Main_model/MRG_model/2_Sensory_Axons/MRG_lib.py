@@ -3510,18 +3510,14 @@ class TwoSensoryAxonsPrescott:
         cA = (-0.5 * sep, 0.0)
         cB = (0.5 * sep, 0.0)
 
-        # Толщина периневрия (для внешнего контура). По умолчанию ~4.7 um.
-        per_th_um = float(self.perineurium_thickness_cm) * 10000.0
-
         # "Boundary" берём как контур, который чуть с запасом охватывает оба волокна.
         bound_r = max(abs(cA[0]), abs(cB[0])) + R + 0.5 * float(self.edge_dist_um)
-        outer_r = bound_r + per_th_um
 
         fig, ax = plt.subplots(1, 1, figsize=(5.4, 5.4), dpi=160)
 
-        # Внешний контур
-        ax.add_patch(Circle((0.0, 0.0), outer_r, fill=False, lw=2.0, ec="#111827", alpha=0.85))
-        ax.add_patch(Circle((0.0, 0.0), bound_r, fill=False, lw=2.0, ec="#6b7280", alpha=0.85, ls="--"))
+        # Boundary показываем только для режимов с boundary-coupling.
+        if self.enable_boundary:
+            ax.add_patch(Circle((0.0, 0.0), bound_r, fill=False, lw=2.0, ec="#6b7280", alpha=0.85, ls="--"))
 
         # Волокна
         ax.add_patch(Circle(cA, R, fc="#93c5fd", ec="#1e3a8a", lw=2.0, alpha=0.85))
@@ -3532,8 +3528,8 @@ class TwoSensoryAxonsPrescott:
 
         title = (
             f"Поперечная схема | D={self.fiber_diameter_um} мкм | edge={self.edge_dist_um} мкм | "
-            f"{'aligned' if self.aligned else 'misaligned'} | "
-            f"{'EC' if self.enable_ephaptic else 'No EC'}"
+            f"{self.mode_descriptor} | "
+            f"{'boundary on' if self.enable_boundary else 'boundary off'}"
         )
         ax.set_title(title)
         ax.set_aspect("equal", adjustable="box")
@@ -3542,13 +3538,15 @@ class TwoSensoryAxonsPrescott:
         ax.grid(True, alpha=0.18)
 
         # Пределы
-        lim = outer_r * 1.15
+        lim = bound_r * 1.20
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
 
         # Легенда (минимальная)
-        ax.plot([], [], color="#111827", lw=2.0, label="Внешний контур")
-        ax.plot([], [], color="#6b7280", lw=2.0, ls="--", label="Граница (boundary)")
+        if self.enable_boundary:
+            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", label="Граница (boundary)")
+        else:
+            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", alpha=0.25, label="Boundary disabled")
         ax.legend(frameon=False, loc="upper right")
 
         fig.tight_layout()

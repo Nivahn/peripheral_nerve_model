@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 
 import h5py
 import numpy as np
@@ -9,11 +10,13 @@ import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
-EXPECTED_TOPOLOGIES = ["one_node_branching", "connector_branching"]
+EXPECTED_TOPOLOGIES = ["one_node_branching"]
 EXPECTED_DIAMETERS = [5.7, 2.5]
 EXPECTED_SCENARIOS = ["one_branch", "multiple_branches"]
 EXPECTED_DISTANCES = [0.1, 0.5, 1.0]
 EXPECTED_MODES = ["aligned", "misaligned_0.5", "misaligned_0.25", "no_EC", "no_EC_isolated"]
+EXPECTED_STIM_PROTOCOL = os.getenv("STIM_PROTOCOL", "sync")
+EXPECTED_STIM_B_DELAY_MS = float(os.getenv("STIM_B_DELAY_MS", "0.5"))
 
 
 def expected_amp_nA(diameter: float) -> float:
@@ -29,6 +32,15 @@ def amp_filename_tag(amp_nA: float) -> str:
     if np.isclose(amp_abs, round(amp_abs)):
         return f"amp{int(round(amp_abs))}"
     return f"amp{amp_abs:g}".replace(".", "p")
+
+
+def stim_protocol_tag(stim_protocol: str, stim_b_delay_ms: float = 0.0) -> str:
+    protocol = str(stim_protocol).strip()
+    if protocol == "sync":
+        return "sync"
+    if protocol == "delay":
+        return f"delay_{float(stim_b_delay_ms):g}ms".replace(".", "p")
+    raise ValueError("stim_protocol must be 'sync' or 'delay'")
 
 
 def prefix_for(topology: str, scenario: str) -> str:
@@ -47,19 +59,36 @@ def mode_tag(mode: str) -> str:
     }[mode]
 
 
-def expected_h5_path(base_out: Path, topology: str, diameter: float, scenario: str, distance: float, mode: str) -> Path:
+def expected_h5_path(
+    base_out: Path,
+    topology: str,
+    diameter: float,
+    scenario: str,
+    distance: float,
+    mode: str,
+    *,
+    stim_protocol: str,
+    stim_b_delay_ms: float,
+) -> Path:
     amp_tag = amp_filename_tag(expected_amp_nA(diameter))
+    protocol_tag = stim_protocol_tag(stim_protocol, stim_b_delay_ms)
     return (
         base_out
         / topology
         / f"fiber_d_{diameter}_um"
         / scenario
         / f"distance_{distance}"
-        / f"{prefix_for(topology, scenario)}_fd{diameter}_ed{distance}_{mode_tag(mode)}_{amp_tag}.h5"
+        / f"{prefix_for(topology, scenario)}_fd{diameter}_ed{distance}_{mode_tag(mode)}_{protocol_tag}_{amp_tag}.h5"
     )
 
 
-def validate_h5_file(h5_path: Path, *, expected_amp: float | None = None) -> tuple[bool, list[str]]:
+def validate_h5_file(
+    h5_path: Path,
+    *,
+    expected_amp: float | None = None,
+    expected_stim_protocol: str = EXPECTED_STIM_PROTOCOL,
+    expected_stim_b_delay_ms: float = EXPECTED_STIM_B_DELAY_MS,
+) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not h5_path.exists():
         return False, [f"missing file: {h5_path}"]
@@ -76,6 +105,11 @@ def validate_h5_file(h5_path: Path, *, expected_amp: float | None = None) -> tup
                 "stim_description",
                 "dt_ms",
                 "h_stop_ms",
+                "stim_protocol",
+                "stim_protocol_tag",
+                "stim_A_start_ms",
+                "stim_B_start_ms",
+                "stim_B_delay_ms",
                 "created_by",
                 "test_mode",
                 "frequencies_hz",
@@ -91,6 +125,12 @@ def validate_h5_file(h5_path: Path, *, expected_amp: float | None = None) -> tup
                 actual_amp = float(f.attrs["amp_nA"])
                 if not np.isclose(actual_amp, float(expected_amp)):
                     errors.append(f"amp_nA={actual_amp:g}, expected {float(expected_amp):g}")
+
+            if "stim_protocol" in f.attrs and str(f.attrs["stim_protocol"]) != str(expected_stim_protocol):
+                errors.append(f"stim_protocol={f.attrs['stim_protocol']}, expected {expected_stim_protocol}")
+            expected_delay = float(expected_stim_b_delay_ms if expected_stim_protocol == "delay" else 0.0)
+            if "stim_B_delay_ms" in f.attrs and not np.isclose(float(f.attrs["stim_B_delay_ms"]), expected_delay):
+                errors.append(f"stim_B_delay_ms={float(f.attrs['stim_B_delay_ms']):g}, expected {expected_delay:g}")
 
             freq_groups = sorted([name for name in f.keys() if name.startswith("Frequency_")])
             if not freq_groups:
@@ -137,15 +177,34 @@ def validate_h5_file(h5_path: Path, *, expected_amp: float | None = None) -> tup
     return len(errors) == 0, errors
 
 
-def run_validation(base_out: Path) -> tuple[bool, list[str]]:
+def run_validation(
+    base_out: Path,
+    *,
+    stim_protocol: str = EXPECTED_STIM_PROTOCOL,
+    stim_b_delay_ms: float = EXPECTED_STIM_B_DELAY_MS,
+) -> tuple[bool, list[str]]:
     failures: list[str] = []
     for topology in EXPECTED_TOPOLOGIES:
         for diameter in EXPECTED_DIAMETERS:
             for scenario in EXPECTED_SCENARIOS:
                 for distance in EXPECTED_DISTANCES:
                     for mode in EXPECTED_MODES:
-                        h5_path = expected_h5_path(base_out, topology, diameter, scenario, distance, mode)
-                        ok, errors = validate_h5_file(h5_path, expected_amp=expected_amp_nA(diameter))
+                        h5_path = expected_h5_path(
+                            base_out,
+                            topology,
+                            diameter,
+                            scenario,
+                            distance,
+                            mode,
+                            stim_protocol=stim_protocol,
+                            stim_b_delay_ms=stim_b_delay_ms,
+                        )
+                        ok, errors = validate_h5_file(
+                            h5_path,
+                            expected_amp=expected_amp_nA(diameter),
+                            expected_stim_protocol=stim_protocol,
+                            expected_stim_b_delay_ms=stim_b_delay_ms,
+                        )
                         if not ok:
                             failures.append(str(h5_path))
                             failures.extend(f"  - {msg}" for msg in errors)
@@ -154,7 +213,7 @@ def run_validation(base_out: Path) -> tuple[bool, list[str]]:
 
 def main():
     base_out = ROOT_DIR / "final_result"
-    ok, failures = run_validation(base_out)
+    ok, failures = run_validation(base_out, stim_protocol=EXPECTED_STIM_PROTOCOL, stim_b_delay_ms=EXPECTED_STIM_B_DELAY_MS)
     if ok:
         print("ACCEPTANCE TEST PASSED")
     else:
