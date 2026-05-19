@@ -997,6 +997,8 @@ class MRGaxon:
         )
 
         for _ in range(self.parent_axon_nodes - 1):
+            if len(self.main_axon) >= int(self.parent_axon_nodes):
+                break
 
             if node_D_after_branching == True:
                 step_idx_from_branch = int(self.main_transition_nodes - count_nodes_after_branching + 1)
@@ -1031,7 +1033,7 @@ class MRGaxon:
                     # ---------------------------------------------------------------------------------
                     self.after_branch_main_id.append(self.main_axon[-1](0.5))
 
-            if node_D_after_branching == False:
+            elif node_D_after_branching == False:
                 # ДОБАВЛЕНО: запоминаем центр последней ноды перед шагом (для расчёта центров STIN)
                 self._trunk_last_node_center_um = total_length_um
                 self._trunk_last_node_name = self.main_axon[-1].name()
@@ -2882,6 +2884,11 @@ class TwoSensoryAxonsPrescott:
         misalignment_um: Optional[float] = None,
         misalignment_fraction: Optional[float] = None,
         ec_strength_scale: float = 1.0,
+        pseudo_branch_recording_A: bool = False,
+        pseudo_branch_recording_B: bool = False,
+        pseudo_branch_node_index: int = 8,
+        pseudo_before_offset_nodes: int = 3,
+        pseudo_after_offset_nodes: int = 3,
     ):
         self.fiber_diameter_um = float(fiber_diameter_um)
         self.edge_dist_um = float(edge_dist_um)
@@ -2909,6 +2916,11 @@ class TwoSensoryAxonsPrescott:
             "no_EC_isolated": None,
         }[self.mode_descriptor]
         self.ec_strength_scale = float(ec_strength_scale)
+        self.pseudo_branch_recording_A = bool(pseudo_branch_recording_A)
+        self.pseudo_branch_recording_B = bool(pseudo_branch_recording_B)
+        self.pseudo_branch_node_index = int(pseudo_branch_node_index)
+        self.pseudo_before_offset_nodes = int(pseudo_before_offset_nodes)
+        self.pseudo_after_offset_nodes = int(pseudo_after_offset_nodes)
         self._pairing_points_A = []
         self._pairing_points_B = []
         self._pairing_pairs = []
@@ -3795,6 +3807,25 @@ class TwoSensoryAxonsPrescott:
             if seg is not None:
                 dst.append((label, seg))
 
+        def _main_node_segment(axon: MRGaxon, index: int):
+            if not getattr(axon, 'main_axon', None):
+                return None
+            idx = max(0, min(int(index), len(axon.main_axon) - 1))
+            return axon.main_axon[idx](0.5)
+
+        def _add_pseudo_branch_points(dst: list, axon: MRGaxon, *, branch_labels: bool):
+            branch_i = int(self.pseudo_branch_node_index)
+            before_i = branch_i - int(self.pseudo_before_offset_nodes)
+            after_i = branch_i + int(self.pseudo_after_offset_nodes)
+            if branch_labels:
+                _append_if_valid(dst, 'before_branch', _main_node_segment(axon, before_i))
+                _append_if_valid(dst, 'branch_point', _main_node_segment(axon, branch_i))
+                _append_if_valid(dst, 'after_branch_main', _main_node_segment(axon, after_i))
+            else:
+                _append_if_valid(dst, 'before_like', _main_node_segment(axon, before_i))
+                _append_if_valid(dst, 'branch_like', _main_node_segment(axon, branch_i))
+                _append_if_valid(dst, 'main_like', _main_node_segment(axon, after_i))
+
         def _map_like_points(dst: list, axon_target: MRGaxon, axon_ref: MRGaxon):
             # Для неветвящегося аксона пишем reference-like main-path точки.
             # Они соответствуют branch-related координатам ветвящегося аксона,
@@ -3818,6 +3849,11 @@ class TwoSensoryAxonsPrescott:
             _map_like_points(extraA, self.axonA, self.axonB)
         elif not branched_B and branched_A:
             _map_like_points(extraB, self.axonB, self.axonA)
+
+        if self.pseudo_branch_recording_A and not branched_A:
+            _add_pseudo_branch_points(extraA, self.axonA, branch_labels=False)
+        if self.pseudo_branch_recording_B and not branched_B:
+            _add_pseudo_branch_points(extraB, self.axonB, branch_labels=True)
 
         if record_terminal_nodes:
             segA_term = self.axonA.get_terminal_main_segment()

@@ -58,7 +58,7 @@ TRACE_ROLE_MAP = {
 
 DIAMETERS = [2.5, 5.7]
 TOPOLOGIES = ["one_node_branching"]
-SCENARIOS = ["one_branch", "multiple_branches"]
+SCENARIOS = ["one_branch", "multiple_branches", "no_branch_reference"]
 
 
 def export_spikes(root_h5: Path) -> pd.DataFrame:

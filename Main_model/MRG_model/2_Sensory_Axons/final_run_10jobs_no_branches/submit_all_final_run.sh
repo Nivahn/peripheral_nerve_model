@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+submit_job() {
+  local script_path="$1"
+  local out
+  out=$(sbatch "$script_path")
+  echo "$out"
+}
+
+submit_job final_run_10jobs_no_branches/submit_on_fd2p5_aligned.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd2p5_misaligned_0p5.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd2p5_misaligned_0p25.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd2p5_no_EC.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd2p5_no_EC_isolated.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd5p7_aligned.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd5p7_misaligned_0p5.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd5p7_misaligned_0p25.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd5p7_no_EC.sbatch
+submit_job final_run_10jobs_no_branches/submit_on_fd5p7_no_EC_isolated.sbatch
