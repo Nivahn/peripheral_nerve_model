@@ -391,9 +391,6 @@ class PrescottMultiFiberModel:
         branch_sequence_nodes: Optional[list[int]] = None,
         main_after_branch_diam_scale: float = 1.0,
         daughter_branch_diam_scale: float = 0.6,
-        enable_post_branch_transition_nodes: bool = True,
-        main_transition_nodes: int = 3,
-        daughter_transition_nodes: int = 3,
         dt_ms: float = 0.005,
         h_stop_ms: float = 6.0,
     ):
@@ -407,9 +404,6 @@ class PrescottMultiFiberModel:
         self.branch_sequence_nodes = branch_sequence_nodes if branch_sequence_nodes is not None else [8]
         self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
         self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
-        self.enable_post_branch_transition_nodes = bool(enable_post_branch_transition_nodes)
-        self.main_transition_nodes = int(main_transition_nodes)
-        self.daughter_transition_nodes = int(daughter_transition_nodes)
         self.dt_ms = float(dt_ms)
         self.h_stop_ms = float(h_stop_ms)
         self.axons: list[MRGaxon] = []
@@ -429,9 +423,6 @@ class PrescottMultiFiberModel:
                 branch_sequence_nodes=self.branch_sequence_nodes,
                 main_after_branch_diam_scale=self.main_after_branch_diam_scale,
                 daughter_branch_diam_scale=self.daughter_branch_diam_scale,
-                enable_post_branch_transition_nodes=self.enable_post_branch_transition_nodes,
-                main_transition_nodes=self.main_transition_nodes,
-                daughter_transition_nodes=self.daughter_transition_nodes,
                 main_after_branch_param_mode="scaled_radial",
                 daughter_branch_param_mode="ascent_full",
                 branch_topology_mode="node",
@@ -448,9 +439,6 @@ class PrescottMultiFiberModel:
             "fiber_diameter_um": self.geometry.fiber_diameter_um,
             "main_after_branch_diam_scale": self.main_after_branch_diam_scale,
             "daughter_branch_diam_scale": self.daughter_branch_diam_scale,
-            "enable_post_branch_transition_nodes": self.enable_post_branch_transition_nodes,
-            "main_transition_nodes": self.main_transition_nodes,
-            "daughter_transition_nodes": self.daughter_transition_nodes,
             "n_neighbor_pairs": int(np.count_nonzero(self.geometry.coupling.neighboring_axon)),
             "n_boundary_points": int(self.geometry.coupling.boundary_coordinates_um.shape[0]),
             "n_connect_type_maps": len(self.geometry.coupling.connect_types),

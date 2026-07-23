@@ -196,17 +196,17 @@ class MRGaxon:
     dt_ms   = 0.0005 # ms
     v_init  = -80.0 # mV
 
-    # Электрические константы, как в MRG
+    # Электрические константы, как в MRG модели
     rho_a = 0.7e6  # Ohm·um
     mycm = 0.1    # uF/cm2 per lamella
     mygm = 0.001  # S/cm2 per lamella
 
-    # Периакисональные зазоры (ум)
+    # Периакисональные зазоры (µm)
     space_p1 = 0.002  # around node/MYSA
     space_p2 = 0.004  # around FLUT
     space_i  = 0.004  # around STIN
 
-    # Геометрия "минимал" MRG
+    # Геометрия
     paralength1 = 3.0   # MYSA длина (µm)
     nodelength  = 1.0   # узел (µm)
 
@@ -227,26 +227,15 @@ class MRGaxon:
              daughter_branch_diam_scale=0.6,
              main_after_branch_param_mode="scaled_radial",
              daughter_branch_param_mode="ascent_full",
-             main_after_branch_scale=None,
-             daughter_branch_scale=None,
              main_after_branch_fiber_diameter=None,
              daughter_branch_fiber_diameter=None,
-             main_transition_nodes=3,
-             daughter_transition_nodes=3,
-             branch_connector_length_um=1.0,
-             branch_connector_diam_scale=1.0,
              celsius=37.0,
              dt_ms=0.0005,
              v_init=-80.0,
              h_stop = 1000.0,
              reset_nrn: bool = True):
 
-        # ---------------------------------------------------------------------------------
-        # ДОБАВЛЕНО (2026-03):
-        # 1) загружаем механизмы из nrnmech.dll именно этой папки
-        # 2) включаем 2 слоя extracellular (vext[0] и vext[1]) для ephaptic coupling
-        # 3) НЕ удаляем секции, чтобы можно было построить 2 аксона в одной симуляции
-        # ---------------------------------------------------------------------------------
+
         load_nrnmech_dll_once()
         h.nlayer_extracellular(2)
 
@@ -267,11 +256,6 @@ class MRGaxon:
         self.branch_topology_mode = str(branch_topology_mode)
 
         # Явно разделяем масштаб диаметра и способ параметризации после ветвления.
-        # Старые *_scale аргументы оставлены как fallback для существующих запусков.
-        if main_after_branch_scale is not None:
-            main_after_branch_diam_scale = main_after_branch_scale
-        if daughter_branch_scale is not None:
-            daughter_branch_diam_scale = daughter_branch_scale
         self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
         self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
         self.main_after_branch_param_mode = self._normalize_post_branch_param_mode(main_after_branch_param_mode)
@@ -284,12 +268,6 @@ class MRGaxon:
         self.daughter_branch_fiber_diameter = (
             None if daughter_branch_fiber_diameter is None else float(daughter_branch_fiber_diameter)
         )
-        self.main_transition_nodes = max(0, int(main_transition_nodes))
-        self.daughter_transition_nodes = max(0, int(daughter_transition_nodes))
-        # Connector-параметры оставлены только для обратной совместимости сигнатуры.
-        # В текущей branch_node topology отдельный connector больше не участвует.
-        self.branch_connector_length_um = float(branch_connector_length_um)
-        self.branch_connector_diam_scale = float(branch_connector_diam_scale)
 
         # Параметры симуляции
         self.celsius = celsius
@@ -322,18 +300,7 @@ class MRGaxon:
         self.main_axon = []
         self.branches = []  # Список ветвей, каждая ветвь - список узлов
         self.terminals = []
-
-        # ---------------------------------------------------------------------------------
-        # ДОБАВЛЕНО (2026-03): индекс секций по имени.
-        # Зачем: для построения ephaptic coupling (LinearMechanism) нужно быстро получать
-        #        Section по строковому имени ("node_15", "STIN_123", ...)
-        # ---------------------------------------------------------------------------------
         self.secs_by_name = {}
-
-        # ---------------------------------------------------------------------------------
-        # ДОБАВЛЕНО (2026-03): продольные координаты (по стволу) для некоторых секций.
-        # Используются для построения карт coupling "как у Prescott" (по центрам секций).
-        # ---------------------------------------------------------------------------------
         self.trunk_center_um = {}
         self._trunk_last_node_center_um = 0.0
         self._trunk_last_node_name = None
@@ -345,26 +312,26 @@ class MRGaxon:
         self.main_path_distance_um = {}
         self.daughter_path_distance_um = {}
 
-        # ДОБАВЛЕНО (2026-03): продольный сдвиг аксона (для Prescott misaligned).
+        # Продольный сдвиг аксона (для Prescott misaligned).
         self.longitudinal_offset_um = 0.0
 
-        # ДОБАВЛЕНО (2026-03): опциональная точка стимуляции.
+        # Опциональная точка стимуляции.
         self._stim_target_sec = None
         self._stim_target_desc = None
 
-        # ДОБАВЛЕНО (2026-03): записи шагов топологии (для аккуратной 2D-отрисовки анатомии).
+        # Записи шагов топологии (для аккуратной 2D-отрисовки анатомии).
         # Каждый шаг append_one_step сохраняет список секций (MYSA/FLUT/STIN) между parent_node и next_node.
         self._step_records = []
 
         # Параметры стимуляции по умолчанию
         self.stimulation_params = {
-            'mode' : 'None', # Biphasic / Monophasic
+            'mode' : 'Biphasic', # Biphasic / Monophasic
             'freq_hz': 10, # Hz
             'amp': 5, # nA
-            't_start': 200.0, #  ms
-            't_end': 1000.0, #  ms
-            'phase_us': 0.0, # us
-            'gap_us': 0.0, # "us"
+            't_start': 10.0, #  ms
+            't_end': 100.0, #  ms
+            'phase_us': 40.0, # us
+            'gap_us': 5.0, # "us"
             'plot_duration': 100.0, # ms
             'csv_path' : "None",
             'neuron_index': 0,
@@ -537,17 +504,6 @@ class MRGaxon:
         # Затем получаем полный набор параметров для нового диаметра, а не просто умножаем diam.
         target_fiber_diameter = float(self.fiber_diameter) * float(scale)
         return self._get_mrg_params(target_fiber_diameter)
-
-    def _params_for_branch_step(self, *, target_params: dict, transition_nodes: int, step_index_from_branch: int):
-        """Простая branch transition zone.
-
-        Здесь без идеализации: в течение первых N узлов после ветвления используем локальные
-        branch-параметры, после чего возвращаемся к базовой геометрии. Это проще и прозрачнее,
-        чем скрытое правило с жёстко зашитыми тремя узлами.
-        """
-        if int(step_index_from_branch) <= int(transition_nodes):
-            return target_params
-        return self.mrg_params
 
     def _insert_mechanism(self, sec, mech_name):
         """Вставляет механизм в секцию, если его ещё нет."""
@@ -828,50 +784,35 @@ class MRGaxon:
 
     def _build_branch_daughter_chain(self, branch_parent, branch_distance_um, target_params, branch_path_store: list, *, use_connector_length_um: float = 0.0):
         term_chain = []
-        P_daughter_step0 = self._params_for_branch_step(
-            target_params=target_params,
-            transition_nodes=self.daughter_transition_nodes,
-            step_index_from_branch=1,
-        )
-        d0 = self.append_one_step(branch_parent, P_daughter_step0, track_trunk=False)
+        d0 = self.append_one_step(branch_parent, target_params, track_trunk=False)
         term_chain.append(d0)
-        daughter_terminal_tail_params = P_daughter_step0
+        daughter_terminal_tail_params = target_params
 
         if branch_distance_um is None:
             branch_distance_um = 0.0
-        Lstep_d0 = float(P_daughter_step0.get('Lstep', 1.0))
+        Lstep_d0 = float(target_params.get('Lstep', 1.0))
         self.node_distance_um[d0.name()] = float(branch_distance_um + float(use_connector_length_um) + Lstep_d0)
         self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + float(use_connector_length_um) + Lstep_d0)
 
         prev = d0
         for i in range(1, self.branch_nodes):
-            P = self._params_for_branch_step(
-                target_params=target_params,
-                transition_nodes=self.daughter_transition_nodes,
-                step_index_from_branch=i + 1,
-            )
-            nxt = self.append_one_step(prev, P, track_trunk=False)
+            nxt = self.append_one_step(prev, target_params, track_trunk=False)
             term_chain.append(nxt)
             prev = nxt
-            daughter_terminal_tail_params = P
+            daughter_terminal_tail_params = target_params
             prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
-            self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
-            self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+            self.node_distance_um[nxt.name()] = float(prev_path + target_params['Lstep'])
+            self.daughter_path_distance_um[nxt.name()] = float(prev_path + target_params['Lstep'])
 
         branch_path_store.extend(term_chain)
         return term_chain, daughter_terminal_tail_params
 
     def _build_branch_main_first_node(self, branch_parent, branch_distance_um, target_params, *, use_connector_length_um: float = 0.0):
-        P_main_step0 = self._params_for_branch_step(
-            target_params=target_params,
-            transition_nodes=self.main_transition_nodes,
-            step_index_from_branch=1,
-        )
-        node_3 = self.append_one_step(branch_parent, P_main_step0, track_trunk=True)
-        self.node_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + P_main_step0['Lstep'])
-        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + P_main_step0['Lstep'])
+        node_3 = self.append_one_step(branch_parent, self.mrg_params, track_trunk=True)
+        self.node_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + self.mrg_params['Lstep'])
+        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + float(use_connector_length_um) + self.mrg_params['Lstep'])
         self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
-        return node_3, P_main_step0
+        return node_3, self.mrg_params
 
     def _build_branch_legacy_connector(self, branch_node, branch_distance_um, P_main_target, P_daughter_target):
         connector_diam_um = float(branch_node.diam) * float(self.branch_connector_diam_scale)
@@ -900,29 +841,24 @@ class MRGaxon:
 
         prev = d0
         for i in range(1, self.branch_nodes):
-            P = self._params_for_branch_step(
-                target_params=P_daughter_target,
-                transition_nodes=self.daughter_transition_nodes,
-                step_index_from_branch=i + 1,
-            )
-            nxt = self.append_one_step(prev, P, track_trunk=False)
+            nxt = self.append_one_step(prev, P_daughter_target, track_trunk=False)
             term_chain.append(nxt)
             prev = nxt
-            daughter_terminal_tail_params = P
+            daughter_terminal_tail_params = P_daughter_target
             prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
-            self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
-            self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+            self.node_distance_um[nxt.name()] = float(prev_path + P_daughter_target['Lstep'])
+            self.daughter_path_distance_um[nxt.name()] = float(prev_path + P_daughter_target['Lstep'])
 
         node_3 = self.make_node(
-            P_main_target['nodeD'],
+            self.mrg_params['nodeD'],
             self.nodelength,
-            P_main_target['rpn0'],
+            self.mrg_params['rpn0'],
         )
         node_3.connect(main_conn, 1.0, 0.0)
-        self.node_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + P_main_target['Lstep'])
-        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + P_main_target['Lstep'])
+        self.node_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + self.mrg_params['Lstep'])
+        self.main_path_distance_um[node_3.name()] = float(branch_distance_um + self.branch_connector_length_um + self.mrg_params['Lstep'])
         self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
-        return term_chain, node_3, P_main_target, daughter_terminal_tail_params
+        return term_chain, node_3, self.mrg_params, daughter_terminal_tail_params
 
     def build_chain(self, n_nodes, params, node_mech=None):
 
@@ -971,8 +907,6 @@ class MRGaxon:
         # >>> INSERT: список расстояний в точках ветвления (мкм)
         self.branch_point_distance_um = []
 
-        node_D_after_branching = False
-        count_nodes_after_branching = 0
         nodes = 0
         main_terminal_tail_params = params
         branch_terminal_tail_params = []
@@ -984,8 +918,6 @@ class MRGaxon:
 
         # ---------------------------------------------------------------------------------
         # Вспомогательная функция для записи сегмента в середине ноды.
-        # В вашем коде местами использовалось .extend(Section), что неявно даёт Segment.
-        # Явный вариант делает код читаемее.
         # ---------------------------------------------------------------------------------
         def _seg05(sec):
             return sec(0.5)
@@ -1000,54 +932,17 @@ class MRGaxon:
             if len(self.main_axon) >= int(self.parent_axon_nodes):
                 break
 
-            if node_D_after_branching == True:
-                step_idx_from_branch = int(self.main_transition_nodes - count_nodes_after_branching + 1)
-                P_main_axon = self._params_for_branch_step(
-                    target_params=self.main_after_branch_params,
-                    transition_nodes=self.main_transition_nodes,
-                    step_index_from_branch=step_idx_from_branch,
-                )
-                # ДОБАВЛЕНО: запоминаем центр последней ноды перед шагом (для расчёта центров STIN)
-                self._trunk_last_node_center_um = total_length_um
-                self._trunk_last_node_name = self.main_axon[-1].name()
-                nxt = self.append_one_step(self.main_axon[-1], P_main_axon, track_trunk=True)
-                self.main_axon.append(nxt)
-                main_terminal_tail_params = P_main_axon
+            # Главный аксон всегда идёт с оригинальными MRG-параметрами (без transition).
+            self._trunk_last_node_center_um = total_length_um
+            self._trunk_last_node_name = self.main_axon[-1].name()
+            nxt = self.append_one_step(self.main_axon[-1], params, track_trunk=True)
+            self.main_axon.append(nxt)
+            main_terminal_tail_params = params
 
-                total_length_um += P_main_axon['Lstep']
-                self.node_distance_um[self.main_axon[-1].name()] = total_length_um
-                self.main_path_distance_um[self.main_axon[-1].name()] = total_length_um
-
-                # ДОБАВЛЕНО: центр новой ноды
-                self.trunk_center_um[self.main_axon[-1].name()] = total_length_um
-
-                # вставляем 1 шаг со скейлом на 60 %
-
-                count_nodes_after_branching -= 1
-                # print(f"count_nodes_after_branching: {count_nodes_after_branching}")
-                if count_nodes_after_branching == 0:
-                    node_D_after_branching = False
-                    # ---------------------------------------------------------------------------------
-                    # ИЗМЕНЕНО (2026-03): запись только одной контрольной ноды на main-ветви
-                    # (третья по порядку после точки ветвления), как в вашем исходном коде.
-                    # ---------------------------------------------------------------------------------
-                    self.after_branch_main_id.append(self.main_axon[-1](0.5))
-
-            elif node_D_after_branching == False:
-                # ДОБАВЛЕНО: запоминаем центр последней ноды перед шагом (для расчёта центров STIN)
-                self._trunk_last_node_center_um = total_length_um
-                self._trunk_last_node_name = self.main_axon[-1].name()
-                nxt = self.append_one_step(self.main_axon[-1], params, track_trunk=True)
-                self.main_axon.append(nxt)
-                main_terminal_tail_params = params
-
-                # >>> INSERT: обновляем пройденную длину (мкм) до этой ноды
-                total_length_um += params['Lstep']
-                self.node_distance_um[self.main_axon[-1].name()] = total_length_um
-                self.main_path_distance_um[self.main_axon[-1].name()] = total_length_um
-
-                # ДОБАВЛЕНО: центр новой ноды
-                self.trunk_center_um[self.main_axon[-1].name()] = total_length_um
+            total_length_um += params['Lstep']
+            self.node_distance_um[self.main_axon[-1].name()] = total_length_um
+            self.main_path_distance_um[self.main_axon[-1].name()] = total_length_um
+            self.trunk_center_um[self.main_axon[-1].name()] = total_length_um
 
             nodes += 1
             # print(nodes)
@@ -1098,53 +993,33 @@ class MRGaxon:
                 else:
                     term_chain = []
 
-                    # Current mode: обе ветви стартуют прямо из branch_node.
-                    # Это более компактная topology без отдельного connector section.
-                    P_daughter_step0 = self._params_for_branch_step(
-                        target_params=P_daughter_target,
-                        transition_nodes=self.daughter_transition_nodes,
-                        step_index_from_branch=1,
-                    )
-                    d0 = self.append_one_step(branch_node, P_daughter_step0, track_trunk=False)
+                    # Дочерний аксон: сразу с целевым диаметром (без transition).
+                    d0 = self.append_one_step(branch_node, P_daughter_target, track_trunk=False)
                     term_chain.append(d0)
-                    daughter_terminal_tail_params = P_daughter_step0
+                    daughter_terminal_tail_params = P_daughter_target
 
-                    Lstep_d0 = float(P_daughter_step0.get('Lstep', 1.0))
+                    Lstep_d0 = float(P_daughter_target.get('Lstep', 1.0))
                     self.node_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
                     self.daughter_path_distance_um[d0.name()] = float(branch_distance_um + Lstep_d0)
 
                     prev = d0
                     for i in range(1, self.branch_nodes):
-                        P = self._params_for_branch_step(
-                            target_params=P_daughter_target,
-                            transition_nodes=self.daughter_transition_nodes,
-                            step_index_from_branch=i + 1,
-                        )
-                        nxt = self.append_one_step(prev, P, track_trunk=False)
+                        nxt = self.append_one_step(prev, P_daughter_target, track_trunk=False)
                         term_chain.append(nxt)
                         prev = nxt
-                        daughter_terminal_tail_params = P
+                        daughter_terminal_tail_params = P_daughter_target
 
                         prev_path = float(self.daughter_path_distance_um[term_chain[-2].name()])
-                        self.node_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
-                        self.daughter_path_distance_um[nxt.name()] = float(prev_path + P['Lstep'])
+                        self.node_distance_um[nxt.name()] = float(prev_path + P_daughter_target['Lstep'])
+                        self.daughter_path_distance_um[nxt.name()] = float(prev_path + P_daughter_target['Lstep'])
 
-                    P_main_step0 = self._params_for_branch_step(
-                        target_params=P_main_target,
-                        transition_nodes=self.main_transition_nodes,
-                        step_index_from_branch=1,
-                    )
-                    node_3 = self.append_one_step(branch_node, P_main_step0, track_trunk=True)
-                    main_terminal_tail_params = P_main_step0
-                    self.node_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
-                    self.main_path_distance_um[node_3.name()] = float(branch_distance_um + P_main_step0['Lstep'])
+                    # Материнский аксон: продолжает с оригинальными MRG-параметрами (без transition).
+                    node_3 = self.append_one_step(branch_node, self.mrg_params, track_trunk=True)
+                    main_terminal_tail_params = self.mrg_params
+                    self.node_distance_um[node_3.name()] = float(branch_distance_um + self.mrg_params['Lstep'])
+                    self.main_path_distance_um[node_3.name()] = float(branch_distance_um + self.mrg_params['Lstep'])
                     self.trunk_center_um[node_3.name()] = self.node_distance_um[node_3.name()]
 
-                # ---------------------------------------------------------------------------------
-                # ИЗМЕНЕНО (2026-03): после ветвления на основном стволе в HDF5 пишем
-                # ТОЛЬКО "третью" контрольную ноду (как у вас было раньше).
-                # Поэтому здесь (на node_3) мы ничего не записываем, а записываем позже,
-                # когда count_nodes_after_branching дойдёт до 0.
                 # ---------------------------------------------------------------------------------
 
                 # ---------------------------------------------------------------------------------
@@ -1160,9 +1035,9 @@ class MRGaxon:
                 else:
                     self.after_branch_daughter_id.append(_seg05(term_chain[-1]))
 
-                # Запоминаем "3 ноды после" в главном аксоне:
-                # В твоем коде это делалось через count_nodes_after_branching и append_one_step,
-                # поэтому здесь ничего не добавляем вручную — оно заполнится позже в цикле.
+                # Запоминаем контрольную ноду после ветвления в главном аксоне.
+                # Без transition zones это просто node_3 (первая нода main после branch).
+                self.after_branch_main_id.append(_seg05(node_3))
 
                 if branch_distance_um is None:
                     print(f"[build_axon] Bifurcation at: {branch_node.name()}")
@@ -1183,10 +1058,8 @@ class MRGaxon:
                 self.main_axon.append(node_3)
                 total_length_um = self.node_distance_um[node_3.name()]
 
-                node_D_after_branching = True
                 self.branches_num -= 1
                 nodes = 0
-                count_nodes_after_branching = max(0, self.main_transition_nodes - 1)
                 if branch_thresholds is not None and self.branches_num > 0:
                     branch_threshold_idx += 1
                     current_branch_threshold = int(branch_thresholds[branch_threshold_idx])
@@ -2546,8 +2419,6 @@ class MRGaxon:
         print(f"Daughter-branch diam scale: {self.daughter_branch_diam_scale}")
         print(f"Main-after-branch param mode: {self.main_after_branch_param_mode}")
         print(f"Daughter-branch param mode: {self.daughter_branch_param_mode}")
-        print(f"Main transition nodes: {self.main_transition_nodes}")
-        print(f"Daughter transition nodes: {self.daughter_transition_nodes}")
         print(f"Шаг ветвления (запрошенный): {self.branch_every_um} мкм")
         print(f"Шаг ветвления (фактический): {self.branch_every_um_effective:.1f} мкм")
 
@@ -3510,7 +3381,7 @@ class TwoSensoryAxonsPrescott:
     #   3) В продольной схеме boundary рисуем как одну аккуратную линию/полосу,
     #      а не тысячи boundary-секций.
     # ------------------------------------------------------------------------------------
-    def plot_cross_section_2d(self, save_path: Optional[str] = None, show: bool = True):
+    def plot_cross_section_2d(self, save_path: Optional[str] = None, show: bool = True, axis_limit_um: Optional[float] = None):
         """Поперечный разрез: 2 волокна + внешний контур + boundary (схема)."""
         import matplotlib.pyplot as plt
         from matplotlib.patches import Circle
@@ -3538,27 +3409,34 @@ class TwoSensoryAxonsPrescott:
         ax.text(cA[0], cA[1], "A", ha="center", va="center", fontsize=13, fontweight="bold", color="#0f172a")
         ax.text(cB[0], cB[1], "B", ha="center", va="center", fontsize=13, fontweight="bold", color="#0f172a")
 
+        mode_title = {
+            "aligned": "Aligned",
+            "misaligned_0.5": "Misaligned",
+            "no_EC": "No EC",
+            "no_EC_isolated": "граница выключена",
+        }.get(str(self.mode_descriptor), str(self.mode_descriptor))
         title = (
-            f"Поперечная схема | D={self.fiber_diameter_um} мкм | edge={self.edge_dist_um} мкм | "
-            f"{self.mode_descriptor} | "
-            f"{'boundary on' if self.enable_boundary else 'boundary off'}"
+            f"Поперечная схема | расстояние {self.edge_dist_um:g} мкм | "
+            f"{mode_title} | "
+            f"{'граница включена' if self.enable_boundary else 'граница выключена'}"
         )
         ax.set_title(title)
         ax.set_aspect("equal", adjustable="box")
-        ax.set_xlabel("x (мкм)")
-        ax.set_ylabel("y (мкм)")
+        ax.set_xlabel("x (мкм)", fontsize=18)
+        ax.set_ylabel("y (мкм)", fontsize=18)
+        ax.tick_params(axis="both", labelsize=15)
         ax.grid(True, alpha=0.18)
 
         # Пределы
-        lim = bound_r * 1.20
+        lim = float(axis_limit_um) if axis_limit_um is not None else bound_r * 1.20
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
 
         # Легенда (минимальная)
         if self.enable_boundary:
-            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", label="Граница (boundary)")
+            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", label="Граница")
         else:
-            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", alpha=0.25, label="Boundary disabled")
+            ax.plot([], [], color="#6b7280", lw=2.0, ls="--", alpha=0.25, label="Граница выключена")
         ax.legend(frameon=False, loc="upper right")
 
         fig.tight_layout()
