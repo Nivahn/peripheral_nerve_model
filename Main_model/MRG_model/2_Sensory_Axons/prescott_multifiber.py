@@ -33,6 +33,15 @@ class PrescottFullMRGaxon(MRGaxon):
         nodelength = float(self.nodelength)
         flut_segment_length = float(paralength2_total) / float(self.FULL_FLUT_PER_SIDE)
         total_internode_len = float(deltax) - nodelength - 2.0 * paralength1 - 2.0 * float(paralength2_total)
+
+        if total_internode_len <= 0 or deltax <= 0:
+            raise ValueError(
+                f"Prescott MRG formulas invalid for fiberD={x:.2f} um: "
+                f"deltax={deltax:.3f}, total_internode_len={total_internode_len:.3f}. "
+                f"These formulas are valid for fiberD >= ~5.7 um. "
+                f"Use daughter_branch_param_mode='scaled_radial' for smaller diameters."
+            )
+
         stin_segment_length = float(total_internode_len) / float(self.FULL_STIN_COUNT)
         return {
             'fiberD': float(x),
@@ -424,7 +433,7 @@ class PrescottMultiFiberModel:
                 main_after_branch_diam_scale=self.main_after_branch_diam_scale,
                 daughter_branch_diam_scale=self.daughter_branch_diam_scale,
                 main_after_branch_param_mode="scaled_radial",
-                daughter_branch_param_mode="ascent_full",
+                daughter_branch_param_mode="scaled_radial",
                 branch_topology_mode="node",
                 dt_ms=self.dt_ms,
                 h_stop=self.h_stop_ms,
