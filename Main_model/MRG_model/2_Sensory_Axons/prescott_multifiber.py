@@ -22,8 +22,16 @@ class PrescottFullMRGaxon(MRGaxon):
     FULL_FLUT_PER_SIDE = 5
     FULL_STIN_COUNT = 40
 
+    # McIntyre 2002 formulas: valid for fiberD >= 5.7 um
+    # ASCENT (Abdollahi/Duke): formulas for fiberD < 5.7 um (uses 6 STIN, 1 FLUT/side)
+    _ASCENT_FIBERD_CUTOFF = 5.7
+
     def _get_mrg_params(self, fiberD):
         x = float(fiberD)
+
+        if x < self._ASCENT_FIBERD_CUTOFF:
+            return self._get_mrg_params_ascent(x)
+
         axonD = 0.01876 * x * x + 0.4787 * x + 0.1204
         nodeD = 0.006304 * x * x + 0.2071 * x + 0.5339
         deltax = -8.215 * x * x + 272.4 * x - 780.2
@@ -38,8 +46,51 @@ class PrescottFullMRGaxon(MRGaxon):
             raise ValueError(
                 f"Prescott MRG formulas invalid for fiberD={x:.2f} um: "
                 f"deltax={deltax:.3f}, total_internode_len={total_internode_len:.3f}. "
-                f"These formulas are valid for fiberD >= ~5.7 um. "
-                f"Use daughter_branch_param_mode='scaled_radial' for smaller diameters."
+            )
+
+        stin_segment_length = float(total_internode_len) / float(self.FULL_STIN_COUNT)
+        return {
+            'fiberD': float(x),
+            'axonD': float(axonD),
+            'nodeD': float(nodeD),
+            'paraD1': float(nodeD),
+            'paraD2': float(axonD),
+            'paral1': float(paralength1),
+            'paral2': float(flut_segment_length),
+            'interL': float(stin_segment_length),
+            'nl': int(nl),
+            'rpn0': self._rin_peri(float(nodeD), self.space_p1),
+            'rpn1': self._rin_peri(float(nodeD), self.space_p1),
+            'rpn2': self._rin_peri(float(axonD), self.space_p2),
+            'rpx': self._rin_peri(float(axonD), self.space_i),
+            'Lstep': float(deltax),
+        }
+
+    def _get_mrg_params_ascent(self, fiberD):
+        """ASCENT small-fiber formulas (Abdollahi/Duke, fiberD < 5.7 um).
+
+        Uses 6 STIN + 1 FLUT/side (same structure as PrescottFullMRGaxon).
+        From build_mrg_parameter_table.py small_mrg_row().
+        """
+        import math as _math
+        x = float(fiberD)
+        g_ratio = 0.020 * (x - 2.39) + 0.55
+        axonD = g_ratio * x
+        node_to_axon_ratio = -0.011 * (axonD - 7.15) + 0.40
+        nodeD = node_to_axon_ratio * axonD
+        deltax = -3.22 * x * x + 148.0 * x - 128.0
+        paralength2_total = -0.171 * x * x + 6.48 * x - 0.935
+        nl = int(round(_math.exp(0.5 * (axonD - 1.75) + 3.2)))
+
+        paralength1 = float(self.paralength1)
+        nodelength = float(self.nodelength)
+        flut_segment_length = float(paralength2_total) / float(self.FULL_FLUT_PER_SIDE)
+        total_internode_len = float(deltax) - nodelength - 2.0 * paralength1 - 2.0 * float(paralength2_total)
+
+        if total_internode_len <= 0 or deltax <= 0:
+            raise ValueError(
+                f"ASCENT formulas invalid for fiberD={x:.2f} um: "
+                f"deltax={deltax:.3f}, total_internode_len={total_internode_len:.3f}"
             )
 
         stin_segment_length = float(total_internode_len) / float(self.FULL_STIN_COUNT)
@@ -433,7 +484,7 @@ class PrescottMultiFiberModel:
                 main_after_branch_diam_scale=self.main_after_branch_diam_scale,
                 daughter_branch_diam_scale=self.daughter_branch_diam_scale,
                 main_after_branch_param_mode="scaled_radial",
-                daughter_branch_param_mode="scaled_radial",
+                daughter_branch_param_mode="ascent_full",
                 branch_topology_mode="node",
                 dt_ms=self.dt_ms,
                 h_stop=self.h_stop_ms,
