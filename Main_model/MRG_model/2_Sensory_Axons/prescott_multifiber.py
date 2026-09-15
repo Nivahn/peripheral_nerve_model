@@ -449,6 +449,7 @@ class PrescottMultiFiberModel:
         branch_nodes: int = 8,
         branches_num: int = 1,
         branch_sequence_nodes: Optional[list[int]] = None,
+        branch_center_only: bool = False,
         main_after_branch_diam_scale: float = 1.0,
         daughter_branch_diam_scale: float = 0.6,
         dt_ms: float = 0.005,
@@ -462,6 +463,7 @@ class PrescottMultiFiberModel:
         self.branch_nodes = int(branch_nodes)
         self.branches_num = int(branches_num)
         self.branch_sequence_nodes = branch_sequence_nodes if branch_sequence_nodes is not None else [8]
+        self.branch_center_only = bool(branch_center_only)
         self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
         self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
         self.dt_ms = float(dt_ms)
@@ -475,12 +477,21 @@ class PrescottMultiFiberModel:
     def build_axons(self) -> list[MRGaxon]:
         self.axons = []
         for idx in range(self.geometry.n_axons):
+            # branch_center_only=True: ветвится только аксон 0 (центральный),
+            # остальные — неветвящиеся. ВАЖНО: для неветвящихся передаём
+            # branch_sequence_nodes=None, иначе MRGaxon перезапишет branches_num
+            # длиной списка и ветвление всё равно построится.
+            if self.branch_center_only and idx != 0:
+                bnum, bseq = 0, None
+            else:
+                bnum, bseq = self.branches_num, self.branch_sequence_nodes
+
             axon = PrescottFullMRGaxon(
                 fiber_diameter=self.geometry.fiber_diameter_um,
                 parent_axon_nodes=self.parent_axon_nodes,
                 branch_nodes=self.branch_nodes,
-                branches_num=self.branches_num,
-                branch_sequence_nodes=self.branch_sequence_nodes,
+                branches_num=bnum,
+                branch_sequence_nodes=bseq,
                 main_after_branch_diam_scale=self.main_after_branch_diam_scale,
                 daughter_branch_diam_scale=self.daughter_branch_diam_scale,
                 main_after_branch_param_mode="scaled_radial",
@@ -497,6 +508,7 @@ class PrescottMultiFiberModel:
         return {
             "n_axons": self.geometry.n_axons,
             "fiber_diameter_um": self.geometry.fiber_diameter_um,
+            "branch_center_only": self.branch_center_only,
             "main_after_branch_diam_scale": self.main_after_branch_diam_scale,
             "daughter_branch_diam_scale": self.daughter_branch_diam_scale,
             "n_neighbor_pairs": int(np.count_nonzero(self.geometry.coupling.neighboring_axon)),

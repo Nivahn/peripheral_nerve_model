@@ -18,19 +18,22 @@ from prescott_multifiber import PrescottMultiFiberModel, generate_equal_diameter
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="20-axon Prescott model: frequency sweep over one edge distance.")
+    parser = argparse.ArgumentParser(description="Multi-axon Prescott model: frequency sweep (1 or many frequencies) over one edge distance.")
     parser.add_argument("--fiber-diameter-um", type=float, default=4.5)
     parser.add_argument("--edge-dist-um", type=float, default=0.1)
-    parser.add_argument("--n-axons", type=int, default=20)
+    parser.add_argument("--n-axons", type=int, default=7)
     parser.add_argument("--amp-na", type=float, default=-3.0)
     parser.add_argument("--freq-start", type=int, default=50)
     parser.add_argument("--freq-end", type=int, default=1001)
     parser.add_argument("--freq-step", type=int, default=50)
+    parser.add_argument("--freq-single", type=float, default=None, help="Run exactly one frequency (for SLURM job array).")
     parser.add_argument("--t-start-ms", type=float, default=10.0)
-    parser.add_argument("--t-end-ms", type=float, default=1010.0)
-    parser.add_argument("--dt-ms", type=float, default=0.005)
+    parser.add_argument("--t-end-ms", type=float, default=1000.0)
+    parser.add_argument("--dt-ms", type=float, default=0.05)
     parser.add_argument("--stimulate-all", action="store_true")
-    parser.add_argument("--out-dir", default=str(ROOT_DIR / "data" / "prescott_20axon_sweep"))
+    parser.add_argument("--branch-center-only", action="store_true", help="Only the central axon branches; the rest are unbranched.")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip a frequency if its HDF5 already exists (resume support).")
+    parser.add_argument("--out-dir", default=str(ROOT_DIR / "data" / "prescott_7axon_sweep"))
     return parser.parse_args()
 
 
@@ -70,8 +73,11 @@ def main() -> None:
     sweep_dir = out_dir / sweep_tag
     sweep_dir.mkdir(parents=True, exist_ok=True)
 
-    frequencies = list(range(args.freq_start, args.freq_end, args.freq_step))
-    print(f"=== 20-axon Prescott sweep ===")
+    if args.freq_single is not None:
+        frequencies = [float(args.freq_single)]
+    else:
+        frequencies = list(range(args.freq_start, args.freq_end, args.freq_step))
+    print(f"=== Multi-axon Prescott sweep ===")
     print(f"  fiber_diameter = {args.fiber_diameter_um} um")
     print(f"  edge_distance  = {args.edge_dist_um} um")
     print(f"  n_axons        = {args.n_axons}")
@@ -80,6 +86,8 @@ def main() -> None:
     print(f"  dt             = {args.dt_ms} ms")
     print(f"  t_end          = {args.t_end_ms} ms")
     print(f"  stimulate_all  = {args.stimulate_all}")
+    print(f"  branch_center_only = {args.branch_center_only}")
+    print(f"  skip_existing  = {args.skip_existing}")
     print(f"  output         = {sweep_dir}")
     print()
 
@@ -95,6 +103,7 @@ def main() -> None:
         branch_nodes=8,
         branches_num=1,
         branch_sequence_nodes=[8],
+        branch_center_only=bool(args.branch_center_only),
         main_after_branch_diam_scale=1.0,
         daughter_branch_diam_scale=0.6,
         dt_ms=float(args.dt_ms),
@@ -121,10 +130,17 @@ def main() -> None:
     model.build_boundary_couplers()
     print(f"  {time.time() - t0:.1f} s")
 
-    packing = model.plot_packing(sweep_dir / "packing_numbered.png")
-    neighbors = model.plot_neighbor_graph(sweep_dir / "neighbor_graph.png")
-    boundary = model.plot_boundary_graph(sweep_dir / "boundary_graph.png")
-    print(f"Plots: {packing}, {neighbors}, {boundary}")
+    # В array-режиме (одна частота на задачу) графики и summary.json пишем только
+    # один раз, чтобы параллельные задачи не перезаписывали друг друга.
+    single_mode = args.freq_single is not None
+
+    if not single_mode or not (sweep_dir / "packing_numbered.png").exists():
+        packing = model.plot_packing(sweep_dir / "packing_numbered.png")
+        neighbors = model.plot_neighbor_graph(sweep_dir / "neighbor_graph.png")
+        boundary = model.plot_boundary_graph(sweep_dir / "boundary_graph.png")
+        print(f"Plots: {packing}, {neighbors}, {boundary}")
+    else:
+        print("Plots: already exist, skip")
 
     summary = model.summary()
     summary.update({
@@ -137,12 +153,18 @@ def main() -> None:
         "t_start_ms": float(args.t_start_ms),
         "t_end_ms": float(args.t_end_ms),
         "stimulate_all": int(bool(args.stimulate_all)),
+        "branch_center_only": int(bool(args.branch_center_only)),
     })
 
     print()
     print("Running frequency sweep...")
     results = []
     for freq in frequencies:
+        h5_name = f"freq_{int(freq):04d}hz_{edge_tag}.h5"
+        if args.skip_existing and (sweep_dir / h5_name).exists():
+            print(f"  skip (exists): {h5_name}")
+            results.append({"freq_hz": freq, "h5": str(sweep_dir / h5_name), "elapsed_s": None, "skipped": True})
+            continue
         res = run_single_frequency(
             model=model,
             freq_hz=float(freq),
@@ -156,7 +178,10 @@ def main() -> None:
         results.append(res)
 
     summary["results"] = results
-    summary_path = sweep_dir / "summary.json"
+    if single_mode:
+        summary_path = sweep_dir / f"summary_freq_{int(args.freq_single):04d}hz.json"
+    else:
+        summary_path = sweep_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nDone. Summary: {summary_path}")
 
