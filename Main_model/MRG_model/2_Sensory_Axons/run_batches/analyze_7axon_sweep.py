@@ -62,6 +62,12 @@ def node_index(name: str) -> int:
     return int(m.group(1)) if m else 10 ** 9
 
 
+def _safe_legend(ax, **kw):
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(**kw)
+
+
 def detect_spikes(t_ms, v_mV, *, threshold_mv, prominence_mv, min_dist_ms, start_ms, dt_ms):
     t_ms = np.asarray(t_ms, dtype=float)
     v_mV = np.asarray(v_mV, dtype=float)
@@ -303,7 +309,7 @@ def main() -> None:
             axes[0].errorbar(freqs, means, yerr=stds, marker="o", capsize=3, label=site)
             axes[0].set_title(f"following fraction (edge={ed:g} um)")
             axes[0].set_xlabel("freq, Hz"); axes[0].set_ylabel("spikes / stimuli"); axes[0].set_ylim(-0.05, 1.15)
-            axes[0].grid(alpha=0.25); axes[0].legend(fontsize=8)
+            axes[0].grid(alpha=0.25); _safe_legend(axes[0], fontsize=8)
 
             # latency
             fl, ml = [], []
@@ -318,7 +324,7 @@ def main() -> None:
                 axes[1].plot(fl, ml, marker="o", label=site)
             axes[1].set_title(f"median latency (edge={ed:g} um)")
             axes[1].set_xlabel("freq, Hz"); axes[1].set_ylabel("latency, ms")
-            axes[1].grid(alpha=0.25); axes[1].legend(fontsize=8)
+            axes[1].grid(alpha=0.25); _safe_legend(axes[1], fontsize=8)
 
             # velocity
             fv, mv = [], []
@@ -333,7 +339,7 @@ def main() -> None:
                 axes[2].plot(fv, mv, marker="o", label=site)
             axes[2].set_title(f"median velocity (edge={ed:g} um)")
             axes[2].set_xlabel("freq, Hz"); axes[2].set_ylabel("velocity, m/s")
-            axes[2].grid(alpha=0.25); axes[2].legend(fontsize=8)
+            axes[2].grid(alpha=0.25); _safe_legend(axes[2], fontsize=8)
 
         fig.tight_layout()
         p = out_dir / f"following_latency_velocity_ed{ed_tag}.png"
@@ -357,7 +363,7 @@ def main() -> None:
             ax.plot(freqs, means, marker="o", label=f"edge={ed:g} um")
     ax.set_title("following fraction: terminal_main (center axon)")
     ax.set_xlabel("freq, Hz"); ax.set_ylabel("spikes / stimuli"); ax.set_ylim(-0.05, 1.15)
-    ax.grid(alpha=0.25); ax.legend()
+    ax.grid(alpha=0.25); _safe_legend(ax)
     fig.tight_layout()
     p = out_dir / "following_terminal_by_edge.png"
     fig.savefig(p, bbox_inches="tight")
