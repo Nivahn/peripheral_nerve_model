@@ -255,6 +255,23 @@ class PrescottPairSpec:
     areas_um2: np.ndarray | None
 
 
+def _section_distance_um(axon, sec_name: str) -> float:
+    """Длина пути (мкм) вдоль аксона до данной секции, если она известна.
+
+    Используется для расчёта скорости проведения: velocity = d_distance / latency.
+    Для дочерней ветви дистанция берётся из daughter_path_distance_um и отсчитывается
+    от начала аксона (через точку ветвления), поэтому разность дистанций корректна.
+    """
+    for attr in ("main_path_distance_um", "node_distance_um", "daughter_path_distance_um", "trunk_center_um"):
+        d = getattr(axon, attr, None)
+        if d and sec_name in d:
+            try:
+                return float(d[sec_name])
+            except (TypeError, ValueError):
+                continue
+    return float("nan")
+
+
 class GroundSinkArray:
     def __init__(self, name_prefix: str, n_sections: int):
         self.name_prefix = str(name_prefix)
@@ -762,7 +779,7 @@ class PrescottMultiFiberModel:
                 extra.append(("terminal_daughter", terminal_daughter))
             segs, names = axon.collect_recording_targets(include_stimulation_point=True, extra_named_segments=extra)
             vecs = [h.Vector().record(seg._ref_v) for seg in segs]
-            recordings.append((idx, names, segs, vecs))
+            recordings.append((idx, axon, names, segs, vecs))
 
         h.finitialize(-80.0)
         h.tstop = float(t_end_ms)
@@ -777,7 +794,10 @@ class PrescottMultiFiberModel:
             f.attrs["freq_hz"] = float(freq_hz)
             f.attrs["amp_nA"] = float(amp_nA)
             f.attrs["stimulate_all"] = int(bool(stimulate_all))
-            for idx, names, segs, vecs in recordings:
+            f.attrs["t_start_ms"] = float(t_start_ms)
+            f.attrs["t_end_ms"] = float(t_end_ms)
+            f.attrs["dt_ms"] = float(h.dt) if float(h.dt) > 0 else float("nan")
+            for idx, axon, names, segs, vecs in recordings:
                 grp = f.create_group(f"Axon_{idx:02d}/Model")
                 grp.create_dataset("time", data=np.asarray(record_t))
                 traces = grp.create_group("Traces")
@@ -786,6 +806,8 @@ class PrescottMultiFiberModel:
                     node_name = f"{seg.sec.name().replace('.', '_')}_{seg.x:.2f}"
                     node_grp = trace_grp.create_group(node_name)
                     node_grp.create_dataset("voltage", data=np.asarray(vec))
+                    # Дистанция вдоль аксона (мкм) от начала — для расчёта скорости проведения.
+                    node_grp.attrs["distance_um"] = float(_section_distance_um(axon, seg.sec.name()))
         return h5_path
 
     def plot_packing(self, out_path: str | Path, *, show_numbers: bool = True) -> Path:
