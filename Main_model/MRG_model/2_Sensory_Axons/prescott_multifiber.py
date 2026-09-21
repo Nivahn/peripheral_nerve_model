@@ -467,6 +467,7 @@ class PrescottMultiFiberModel:
         branches_num: int = 1,
         branch_sequence_nodes: Optional[list[int]] = None,
         branch_center_only: bool = False,
+        enable_ephaptic: bool = True,
         main_after_branch_diam_scale: float = 1.0,
         daughter_branch_diam_scale: float = 0.6,
         dt_ms: float = 0.005,
@@ -481,6 +482,7 @@ class PrescottMultiFiberModel:
         self.branches_num = int(branches_num)
         self.branch_sequence_nodes = branch_sequence_nodes if branch_sequence_nodes is not None else [8]
         self.branch_center_only = bool(branch_center_only)
+        self.enable_ephaptic = bool(enable_ephaptic)
         self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
         self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
         self.dt_ms = float(dt_ms)
@@ -490,6 +492,16 @@ class PrescottMultiFiberModel:
         self.couplers: list[LinearMechanismCoupler] = []
         self.boundary_sinks: list[GroundSinkArray] = []
         self.boundary_couplers: list[LinearMechanismCoupler] = []
+
+        # Prescott endoneurium: второй слой extracellular (vext[1]).
+        # Без этой настройки LinearMechanism-связь не влияет на мембрану, и эфаптика
+        # фактически отключена (результаты не зависят от edge distance).
+        self.XG1 = 1e-9
+        self.extracellular_layer1_enabled = True
+        self._layer1_applied = False
+        _ed = np.asarray(self.geometry.coupling.edge_distance_um, dtype=float)
+        _pos = _ed[_ed > 0]
+        self.edge_dist_um_for_layers = float(np.min(_pos)) if _pos.size else 0.1
 
     def build_axons(self) -> list[MRGaxon]:
         self.axons = []
@@ -733,6 +745,20 @@ class PrescottMultiFiberModel:
         self.boundary_couplers = couplers
         return couplers
 
+    def apply_extracellular_layers(self) -> None:
+        """Настраивает второй слой extracellular (vext[1]) для всех аксонов.
+
+        Критично для эфаптики: LinearMechanism подключается к vext[1], и если слой
+        не сконфигурирован (xraxial[1]=1e9, xg[1]=0 по умолчанию), связь не влияет
+        на мембрану — результаты перестают зависеть от edge distance.
+        """
+        for axon in self.axons:
+            axon.apply_prescott_extracellular_layer1(
+                edge_dist_um=float(self.edge_dist_um_for_layers),
+                XG1=float(self.XG1),
+            )
+        self._layer1_applied = True
+
     def run_smoke_simulation(
         self,
         *,
@@ -749,7 +775,9 @@ class PrescottMultiFiberModel:
         from MRG_lib import h
         if not self.axons:
             self.build_axons()
-        if not self.couplers:
+        if self.extracellular_layer1_enabled and not self._layer1_applied:
+            self.apply_extracellular_layers()
+        if self.enable_ephaptic and not self.couplers:
             self.build_pair_specs()
             self.build_ephaptic_couplers()
         if not self.boundary_couplers:

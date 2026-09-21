@@ -201,7 +201,9 @@ def main() -> None:
             t_start = float(attrs.get("t_start_ms", 10.0))
             t_end = float(attrs.get("t_end_ms", float(t[-1]) if t.size else 0.0))
             duration_s = max(0.0, (t_end - t_start) / 1000.0)
-            n_stimuli = int(round(freq_hz * duration_s)) if (np.isfinite(freq_hz) and duration_s > 0) else 0
+            # Число стимулов = floor((t_end - t_start) * freq / 1000) — как в STIMULATOR
+            # (напр. 50 Гц, 990 мс -> 49 пульсов, а не 50).
+            n_stimuli = int(freq_hz * duration_s) if (np.isfinite(freq_hz) and duration_s > 0) else 0
 
             # Максимальное окно матчинга не должно превышать ~80% периода стимуляции.
             period_ms = 1000.0 / freq_hz if (np.isfinite(freq_hz) and freq_hz > 0) else np.inf
@@ -250,10 +252,15 @@ def main() -> None:
                     med_lat = float(np.median(lat)) if lat.size else np.nan
                     mean_lat = float(np.mean(lat)) if lat.size else np.nan
                     vel = (float(path_um) / med_lat * 1e-3) if (np.isfinite(path_um) and np.isfinite(med_lat) and med_lat > 0) else np.nan
+                    # Отбрасываем физически неправдоподобные значения (ошибочный мэтчинг
+                    # спайков на высоких частотах даёт крошечную латентность).
+                    if np.isfinite(vel) and (vel <= 0.0 or vel > 150.0):
+                        vel = float("nan")
 
                     summary_rows.append({
                         "h5": fp.name, "edge_dist_um": ed, "fiber_diameter_um": fd, "freq_hz": freq_hz,
-                        "axon": axon, "trace": trace, "site": TRACE_SITE.get(trace, trace), "node": d["node"],
+                        "axon": axon, "is_center": int(str(axon) == "Axon_00"),
+                        "trace": trace, "site": TRACE_SITE.get(trace, trace), "node": d["node"],
                         "n_spikes": int(d["t"].size),
                         "n_stimuli": n_stimuli,
                         "following_fraction": (float(d["t"].size) / n_stimuli) if n_stimuli > 0 else float("nan"),
@@ -287,59 +294,54 @@ def main() -> None:
 
     # ---- Plots ----
     edges = sorted({r["edge_dist_um"] for r in summary_rows if np.isfinite(r["edge_dist_um"])})
-    plot_sites = ["before", "after_main", "terminal_main", "after_daughter", "terminal_daughter"]
+    center_sites = ["before", "branch", "after_main", "after_daughter", "terminal_main", "terminal_daughter"]
+
+    def _series(site, ed, metric, *, is_center=1):
+        fr, mv = [], []
+        fr_list = sorted({r["freq_hz"] for r in summary_rows
+                          if r["site"] == site and abs(r["edge_dist_um"] - ed) < 1e-9 and np.isfinite(r["freq_hz"])})
+        for freq in fr_list:
+            vals = [r[metric] for r in summary_rows
+                    if r["site"] == site and int(r["is_center"]) == is_center
+                    and abs(r["freq_hz"] - freq) < 1e-9 and abs(r["edge_dist_um"] - ed) < 1e-9
+                    and np.isfinite(r[metric])]
+            if vals:
+                fr.append(freq); mv.append(float(np.median(vals)))
+        return fr, mv
 
     for ed in edges:
         ed_tag = f"{ed:g}".replace(".", "p")
         fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), dpi=160)
-        for site in plot_sites:
-            freqs, means, stds = [], [], []
-            for freq in sorted({r["freq_hz"] for r in summary_rows
-                                if np.isfinite(r["freq_hz"]) and abs(r["edge_dist_um"] - ed) < 1e-9
-                                and r["site"] == site}):
-                vals = [r["following_fraction"] for r in summary_rows
-                        if np.isfinite(r["freq_hz"]) and abs(r["freq_hz"] - freq) < 1e-9
-                        and abs(r["edge_dist_um"] - ed) < 1e-9 and r["site"] == site
-                        and np.isfinite(r["following_fraction"])]
-                if not vals:
-                    continue
-                freqs.append(freq); means.append(float(np.mean(vals))); stds.append(float(np.std(vals)))
-            if not freqs:
-                continue
-            axes[0].errorbar(freqs, means, yerr=stds, marker="o", capsize=3, label=site)
-            axes[0].set_title(f"following fraction (edge={ed:g} um)")
-            axes[0].set_xlabel("freq, Hz"); axes[0].set_ylabel("spikes / stimuli"); axes[0].set_ylim(-0.05, 1.15)
-            axes[0].grid(alpha=0.25); _safe_legend(axes[0], fontsize=8)
 
-            # latency
-            fl, ml = [], []
-            for freq in sorted({r["freq_hz"] for r in summary_rows if r["site"] == site
-                                and abs(r["edge_dist_um"] - ed) < 1e-9 and np.isfinite(r["freq_hz"])}):
-                vals = [r["median_latency_ms"] for r in summary_rows if r["site"] == site
-                        and abs(r["freq_hz"] - freq) < 1e-9 and abs(r["edge_dist_um"] - ed) < 1e-9
-                        and np.isfinite(r["median_latency_ms"])]
-                if vals:
-                    fl.append(freq); ml.append(float(np.median(vals)))
-            if fl:
-                axes[1].plot(fl, ml, marker="o", label=site)
-            axes[1].set_title(f"median latency (edge={ed:g} um)")
-            axes[1].set_xlabel("freq, Hz"); axes[1].set_ylabel("latency, ms")
-            axes[1].grid(alpha=0.25); _safe_legend(axes[1], fontsize=8)
+        # following fraction: центр + (пунктиром) соседи на terminal_main
+        for site in center_sites:
+            fr, mv = _series(site, ed, "following_fraction", is_center=1)
+            if fr:
+                axes[0].plot(fr, mv, marker="o", label=f"center:{site}")
+        fr, mv = _series("terminal_main", ed, "following_fraction", is_center=0)
+        if fr:
+            axes[0].plot(fr, mv, marker="s", ls="--", color="gray", label="neighbors:terminal_main")
+        axes[0].set_title(f"following fraction (edge={ed:g} um)")
+        axes[0].set_xlabel("freq, Hz"); axes[0].set_ylabel("spikes / stimuli"); axes[0].set_ylim(-0.05, 1.15)
+        axes[0].grid(alpha=0.25); _safe_legend(axes[0], fontsize=8)
 
-            # velocity
-            fv, mv = [], []
-            for freq in sorted({r["freq_hz"] for r in summary_rows if r["site"] == site
-                                and abs(r["edge_dist_um"] - ed) < 1e-9 and np.isfinite(r["freq_hz"])}):
-                vals = [r["median_velocity_m_s"] for r in summary_rows if r["site"] == site
-                        and abs(r["freq_hz"] - freq) < 1e-9 and abs(r["edge_dist_um"] - ed) < 1e-9
-                        and np.isfinite(r["median_velocity_m_s"])]
-                if vals:
-                    fv.append(freq); mv.append(float(np.median(vals)))
-            if fv:
-                axes[2].plot(fv, mv, marker="o", label=site)
-            axes[2].set_title(f"median velocity (edge={ed:g} um)")
-            axes[2].set_xlabel("freq, Hz"); axes[2].set_ylabel("velocity, m/s")
-            axes[2].grid(alpha=0.25); _safe_legend(axes[2], fontsize=8)
+        # latency (центр)
+        for site in center_sites:
+            fr, mv = _series(site, ed, "median_latency_ms", is_center=1)
+            if fr:
+                axes[1].plot(fr, mv, marker="o", label=site)
+        axes[1].set_title(f"median latency (center, edge={ed:g} um)")
+        axes[1].set_xlabel("freq, Hz"); axes[1].set_ylabel("latency, ms")
+        axes[1].grid(alpha=0.25); _safe_legend(axes[1], fontsize=8)
+
+        # velocity (центр, выбросы отфильтрованы)
+        for site in center_sites:
+            fr, mv = _series(site, ed, "median_velocity_m_s", is_center=1)
+            if fr:
+                axes[2].plot(fr, mv, marker="o", label=site)
+        axes[2].set_title(f"median velocity (center, edge={ed:g} um)")
+        axes[2].set_xlabel("freq, Hz"); axes[2].set_ylabel("velocity, m/s")
+        axes[2].grid(alpha=0.25); _safe_legend(axes[2], fontsize=8)
 
         fig.tight_layout()
         p = out_dir / f"following_latency_velocity_ed{ed_tag}.png"
@@ -347,20 +349,12 @@ def main() -> None:
         plt.close(fig)
         print(f"Saved {p}")
 
-    # Сводный график: following fraction на терминали (terminal_main) по edge distance
+    # Сводный график: following fraction на терминали центрального аксона по edge distance
     fig, ax = plt.subplots(figsize=(8, 5.5), dpi=160)
     for ed in edges:
-        freqs, means = [], []
-        for freq in sorted({r["freq_hz"] for r in summary_rows
-                            if r["site"] == "terminal_main" and abs(r["edge_dist_um"] - ed) < 1e-9
-                            and np.isfinite(r["freq_hz"])}):
-            vals = [r["following_fraction"] for r in summary_rows if r["site"] == "terminal_main"
-                    and abs(r["freq_hz"] - freq) < 1e-9 and abs(r["edge_dist_um"] - ed) < 1e-9
-                    and np.isfinite(r["following_fraction"])]
-            if vals:
-                freqs.append(freq); means.append(float(np.mean(vals)))
-        if freqs:
-            ax.plot(freqs, means, marker="o", label=f"edge={ed:g} um")
+        fr, mv = _series("terminal_main", ed, "following_fraction", is_center=1)
+        if fr:
+            ax.plot(fr, mv, marker="o", label=f"edge={ed:g} um")
     ax.set_title("following fraction: terminal_main (center axon)")
     ax.set_xlabel("freq, Hz"); ax.set_ylabel("spikes / stimuli"); ax.set_ylim(-0.05, 1.15)
     ax.grid(alpha=0.25); _safe_legend(ax)

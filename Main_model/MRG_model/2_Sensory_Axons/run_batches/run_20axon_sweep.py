@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dt-ms", type=float, default=0.05)
     parser.add_argument("--stimulate-all", action="store_true")
     parser.add_argument("--branch-center-only", action="store_true", help="Only the central axon branches; the rest are unbranched.")
+    parser.add_argument("--no-ephaptic", action="store_true", help="Disable ephaptic coupling (isolated control, no LinearMechanism).")
     parser.add_argument("--skip-existing", action="store_true", help="Skip a frequency if its HDF5 already exists (resume support).")
     parser.add_argument("--out-dir", default=str(ROOT_DIR / "data" / "prescott_7axon_sweep"))
     return parser.parse_args()
@@ -87,6 +88,7 @@ def main() -> None:
     print(f"  t_end          = {args.t_end_ms} ms")
     print(f"  stimulate_all  = {args.stimulate_all}")
     print(f"  branch_center_only = {args.branch_center_only}")
+    print(f"  enable_ephaptic    = {not args.no_ephaptic}")
     print(f"  skip_existing  = {args.skip_existing}")
     print(f"  output         = {sweep_dir}")
     print()
@@ -104,6 +106,7 @@ def main() -> None:
         branches_num=1,
         branch_sequence_nodes=[8],
         branch_center_only=bool(args.branch_center_only),
+        enable_ephaptic=not bool(args.no_ephaptic),
         main_after_branch_diam_scale=1.0,
         daughter_branch_diam_scale=0.6,
         dt_ms=float(args.dt_ms),
@@ -154,6 +157,7 @@ def main() -> None:
         "t_end_ms": float(args.t_end_ms),
         "stimulate_all": int(bool(args.stimulate_all)),
         "branch_center_only": int(bool(args.branch_center_only)),
+        "enable_ephaptic": int(not bool(args.no_ephaptic)),
     })
 
     print()
