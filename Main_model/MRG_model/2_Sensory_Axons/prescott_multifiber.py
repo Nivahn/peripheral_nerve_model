@@ -643,27 +643,33 @@ class PrescottMultiFiberModel:
                     rg_raw = np.asarray(self.geometry.coupling.rg_by_pair[rg_key], dtype=float).reshape(-1)
                     areas_raw = None if areas_key is None else np.asarray(self.geometry.coupling.areas_by_pair[areas_key], dtype=float).reshape(-1)
                 else:
-                    src_sorted = sorted(token_maps[i].keys(), key=lambda t: center_maps[i][t])
+                    # Prescott-style: связываем только NODE (aligned: node↔node) либо
+                    # node↔STIN (misaligned). Связывать все секции (MYSA/FLUT/STIN) нельзя —
+                    # это не физика Prescott и резко замедляет решатель.
+                    node_tokens_i = sorted([t for t in token_maps[i] if t.startswith("node_")],
+                                           key=lambda t: center_maps[i][t])
+                    node_tokens_j = sorted([t for t in token_maps[j] if t.startswith("node_")],
+                                           key=lambda t: center_maps[j][t])
                     off_um = float(self.misalignment_fraction) * float(self.axons[i].mrg_params.get('Lstep', 1.0))
-                    if abs(off_um) > 1e-9:
-                        # Misaligned: каждую секцию аксона i сопоставляем с ближайшей
-                        # секцией аксона j, сдвинутой на off_um вдоль оси (Prescott-style).
-                        j_tokens_all = list(token_maps[j].keys())
-                        j_centers = np.asarray([center_maps[j][t] for t in j_tokens_all], dtype=float)
-                        src_list, tgt_list = [], []
-                        for t in src_sorted:
+                    if abs(off_um) <= 1e-9:
+                        n_shared = min(len(node_tokens_i), len(node_tokens_j))
+                        source_tokens = node_tokens_i[:n_shared]
+                        target_tokens = node_tokens_j[:n_shared]
+                        centers = np.asarray([center_maps[i][t] for t in source_tokens], dtype=float)
+                    else:
+                        stin_tokens_j = sorted([t for t in token_maps[j] if t.startswith("STIN_")],
+                                               key=lambda t: center_maps[j][t])
+                        j_centers = np.asarray([center_maps[j][t] for t in stin_tokens_j], dtype=float)
+                        src_list, tgt_list, ctr = [], [], []
+                        for t in node_tokens_i:
                             tx = float(center_maps[i][t]) + off_um
                             k = int(np.argmin(np.abs(j_centers - tx)))
                             src_list.append(t)
-                            tgt_list.append(j_tokens_all[k])
+                            tgt_list.append(stin_tokens_j[k])
+                            ctr.append(float(center_maps[i][t]))
                         source_tokens = src_list
                         target_tokens = tgt_list
-                        centers = np.asarray([center_maps[i][t] for t in source_tokens], dtype=float)
-                    else:
-                        shared_tokens = sorted(set(token_maps[i].keys()) & set(token_maps[j].keys()), key=lambda token: center_maps[i][token])
-                        source_tokens = list(shared_tokens)
-                        target_tokens = list(shared_tokens)
-                        centers = np.asarray([center_maps[i][token] for token in shared_tokens], dtype=float)
+                        centers = np.asarray(ctr, dtype=float)
                     rg_raw = _compute_rg_dimless_from_centers(centers, float(self.geometry.fiber_diameter_um))
                     areas_raw = None
 
