@@ -468,6 +468,7 @@ class PrescottMultiFiberModel:
         branch_sequence_nodes: Optional[list[int]] = None,
         branch_center_only: bool = False,
         enable_ephaptic: bool = True,
+        misalignment_fraction: float = 0.0,
         main_after_branch_diam_scale: float = 1.0,
         daughter_branch_diam_scale: float = 0.6,
         dt_ms: float = 0.005,
@@ -483,6 +484,7 @@ class PrescottMultiFiberModel:
         self.branch_sequence_nodes = branch_sequence_nodes if branch_sequence_nodes is not None else [8]
         self.branch_center_only = bool(branch_center_only)
         self.enable_ephaptic = bool(enable_ephaptic)
+        self.misalignment_fraction = float(misalignment_fraction)
         self.main_after_branch_diam_scale = float(main_after_branch_diam_scale)
         self.daughter_branch_diam_scale = float(daughter_branch_diam_scale)
         self.dt_ms = float(dt_ms)
@@ -538,6 +540,8 @@ class PrescottMultiFiberModel:
             "n_axons": self.geometry.n_axons,
             "fiber_diameter_um": self.geometry.fiber_diameter_um,
             "branch_center_only": self.branch_center_only,
+            "enable_ephaptic": self.enable_ephaptic,
+            "misalignment_fraction": self.misalignment_fraction,
             "main_after_branch_diam_scale": self.main_after_branch_diam_scale,
             "daughter_branch_diam_scale": self.daughter_branch_diam_scale,
             "n_neighbor_pairs": int(np.count_nonzero(self.geometry.coupling.neighboring_axon)),
@@ -639,10 +643,27 @@ class PrescottMultiFiberModel:
                     rg_raw = np.asarray(self.geometry.coupling.rg_by_pair[rg_key], dtype=float).reshape(-1)
                     areas_raw = None if areas_key is None else np.asarray(self.geometry.coupling.areas_by_pair[areas_key], dtype=float).reshape(-1)
                 else:
-                    shared_tokens = sorted(set(token_maps[i].keys()) & set(token_maps[j].keys()), key=lambda token: center_maps[i][token])
-                    source_tokens = list(shared_tokens)
-                    target_tokens = list(shared_tokens)
-                    centers = np.asarray([center_maps[i][token] for token in shared_tokens], dtype=float)
+                    src_sorted = sorted(token_maps[i].keys(), key=lambda t: center_maps[i][t])
+                    off_um = float(self.misalignment_fraction) * float(self.axons[i].mrg_params.get('Lstep', 1.0))
+                    if abs(off_um) > 1e-9:
+                        # Misaligned: каждую секцию аксона i сопоставляем с ближайшей
+                        # секцией аксона j, сдвинутой на off_um вдоль оси (Prescott-style).
+                        j_tokens_all = list(token_maps[j].keys())
+                        j_centers = np.asarray([center_maps[j][t] for t in j_tokens_all], dtype=float)
+                        src_list, tgt_list = [], []
+                        for t in src_sorted:
+                            tx = float(center_maps[i][t]) + off_um
+                            k = int(np.argmin(np.abs(j_centers - tx)))
+                            src_list.append(t)
+                            tgt_list.append(j_tokens_all[k])
+                        source_tokens = src_list
+                        target_tokens = tgt_list
+                        centers = np.asarray([center_maps[i][t] for t in source_tokens], dtype=float)
+                    else:
+                        shared_tokens = sorted(set(token_maps[i].keys()) & set(token_maps[j].keys()), key=lambda token: center_maps[i][token])
+                        source_tokens = list(shared_tokens)
+                        target_tokens = list(shared_tokens)
+                        centers = np.asarray([center_maps[i][token] for token in shared_tokens], dtype=float)
                     rg_raw = _compute_rg_dimless_from_centers(centers, float(self.geometry.fiber_diameter_um))
                     areas_raw = None
 

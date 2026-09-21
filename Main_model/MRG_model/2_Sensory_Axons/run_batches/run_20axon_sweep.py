@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stimulate-all", action="store_true")
     parser.add_argument("--branch-center-only", action="store_true", help="Only the central axon branches; the rest are unbranched.")
     parser.add_argument("--no-ephaptic", action="store_true", help="Disable ephaptic coupling (isolated control, no LinearMechanism).")
+    parser.add_argument("--misalignment-fraction", type=float, default=0.0, help="Longitudinal offset as a fraction of the internode step (e.g. 0.5).")
     parser.add_argument("--skip-existing", action="store_true", help="Skip a frequency if its HDF5 already exists (resume support).")
     parser.add_argument("--out-dir", default=str(ROOT_DIR / "data" / "prescott_7axon_sweep"))
     return parser.parse_args()
@@ -89,6 +90,7 @@ def main() -> None:
     print(f"  stimulate_all  = {args.stimulate_all}")
     print(f"  branch_center_only = {args.branch_center_only}")
     print(f"  enable_ephaptic    = {not args.no_ephaptic}")
+    print(f"  misalignment_frac  = {args.misalignment_fraction}")
     print(f"  skip_existing  = {args.skip_existing}")
     print(f"  output         = {sweep_dir}")
     print()
@@ -107,6 +109,7 @@ def main() -> None:
         branch_sequence_nodes=[8],
         branch_center_only=bool(args.branch_center_only),
         enable_ephaptic=not bool(args.no_ephaptic),
+        misalignment_fraction=float(args.misalignment_fraction),
         main_after_branch_diam_scale=1.0,
         daughter_branch_diam_scale=0.6,
         dt_ms=float(args.dt_ms),
@@ -158,6 +161,7 @@ def main() -> None:
         "stimulate_all": int(bool(args.stimulate_all)),
         "branch_center_only": int(bool(args.branch_center_only)),
         "enable_ephaptic": int(not bool(args.no_ephaptic)),
+        "misalignment_fraction": float(args.misalignment_fraction),
     })
 
     print()
