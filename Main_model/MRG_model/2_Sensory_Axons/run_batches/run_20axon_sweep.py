@@ -121,15 +121,19 @@ def main() -> None:
     model.build_axons()
     print(f"  {time.time() - t0:.1f} s")
 
-    print("Building pair specs...")
-    t0 = time.time()
-    model.build_pair_specs()
-    print(f"  {time.time() - t0:.1f} s")
+    if args.no_ephaptic:
+        # Изолированный контроль: НЕ строим эфаптические couplers вообще.
+        print("Building ephaptic couplers... SKIPPED (--no-ephaptic)")
+    else:
+        print("Building pair specs...")
+        t0 = time.time()
+        model.build_pair_specs()
+        print(f"  {time.time() - t0:.1f} s")
 
-    print("Building ephaptic couplers...")
-    t0 = time.time()
-    model.build_ephaptic_couplers()
-    print(f"  {time.time() - t0:.1f} s")
+        print("Building ephaptic couplers...")
+        t0 = time.time()
+        model.build_ephaptic_couplers()
+        print(f"  {time.time() - t0:.1f} s")
 
     print("Building boundary couplers...")
     t0 = time.time()
